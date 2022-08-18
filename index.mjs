@@ -3,14 +3,17 @@ import cors from 'cors';
 import express from 'express';
 import passport from 'passport';
 
-import configureWS from './organisation/api/services/socket/configure.mjs';
+import configureWS from './services/socket/configure.mjs';
 
 import APIRouter from './router.mjs';
-import Auth from './organisation/api/auth/_auth.mjs';
+import Auth from './auth/_auth.mjs';
 
-import bodyParser from 'body-parser';
-import Database from './organisation/setup/database.mjs';
-const { urlencoded, json } = bodyParser;
+import BodyParser from 'body-parser';
+
+
+// Put in shared
+import Database from 'coop-shared/setup/database.mjs';
+
 
 export default async function api() {
     // Connect to PostGres Database and attach event/error handlers.
@@ -20,8 +23,8 @@ export default async function api() {
     const app = express();
 
     // Enable incoming data parsing.
-    app.use(urlencoded({ extended: false }));
-    app.use(json());
+    app.use(BodyParser.urlencoded({ extended: false }));
+    app.use(BodyParser.json());
 
     // Disable security, tighten "later".
     app.use(cors({ origin: '*' }));

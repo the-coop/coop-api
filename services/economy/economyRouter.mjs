@@ -1,5 +1,5 @@
 import { Router } from "express";
-import DatabaseHelper from "../../../../operations/databaseHelper.mjs";
+import DatabaseHelper from "coop-shared/helper/databaseHelper.mjs";
 import TradingHelper from "../../../../operations/minigames/medium/economy/items/tradingHelper.mjs";
 import { POINTS } from "../../../coop.mjs";
 
