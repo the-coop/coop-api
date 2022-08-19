@@ -1,9 +1,9 @@
-
-import { Strategy } from 'passport-jwt';
+import axios from 'axios';
 import passport from 'passport';
 import jwt from 'jsonwebtoken';
-import axios from 'axios';
+import { Strategy } from 'passport-jwt';
 
+// This won't work, depends on Discord?
 import { USERS } from '../../coop.mjs';
 
 

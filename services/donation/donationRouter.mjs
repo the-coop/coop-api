@@ -1,6 +1,6 @@
 import _ from 'lodash';
 import { Router } from "express";
-import Database from '../../../setup/database.mjs';
+import Database from 'coop-shared/setup/database.mjs';
 
 const DonationRouter = Router();
 
