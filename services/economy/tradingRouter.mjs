@@ -1,10 +1,12 @@
 import { Router } from "express";
-import TradingHelper from "../../../../operations/minigames/medium/economy/items/tradingHelper.mjs";
-import { ITEMS, USABLE } from "../../../coop.mjs";
+
+import Trading from 'coop-shared/services/trading.mjs';
+import Items from 'coop-shared/services/items.mjs';
+import Useable from 'coop-shared/services/useable.mjs';
+
 import Auth from "../../auth/_auth.mjs";
 
 const TradingRouter = Router();
-
 
 TradingRouter.get('/mine', Auth.guard(), async (req, res) => {
     let trades = [];
@@ -12,7 +14,7 @@ TradingRouter.get('/mine', Auth.guard(), async (req, res) => {
     try {
         const discordID = req.user?.discord_id;
         if (discordID)
-            trades = await TradingHelper.getByTrader(discordID);
+            trades = await Trading.getByTrader(discordID);
 
     } catch(e) {
         console.log('Error with a trade.');
@@ -25,7 +27,7 @@ TradingRouter.get('/mine', Auth.guard(), async (req, res) => {
 TradingRouter.delete('/:tradeID', Auth.guard(), async (req, res) => {
     try {
         // Check if valid trade ID given.
-        const trade = await TradingHelper.get(req.params.tradeID);
+        const trade = await Trading.get(req.params.tradeID);
         if (!trade) throw new Error(`invalid_trade_id`);
 
         // Make sure trade belongs to the user.
@@ -33,7 +35,7 @@ TradingRouter.delete('/:tradeID', Auth.guard(), async (req, res) => {
             throw new Error(`lack_authorization`);
 
         // Let helper handle accepting logic as it's used in multiple places so far.
-        const tradeCancelled = await TradingHelper._cancel(trade);
+        const tradeCancelled = await Trading.close(trade);
         if (tradeCancelled)
             return res.status(200).json({ success: true });
         
@@ -50,15 +52,14 @@ TradingRouter.delete('/:tradeID', Auth.guard(), async (req, res) => {
 
 TradingRouter.get('/:tradeID', async (req, res) => {
     const tradeID = req.params.tradeID;
-    const trade = await TradingHelper.get(tradeID);
+    const trade = await Trading.get(tradeID);
     res.status(200).json(trade);
 });
-
 
 TradingRouter.post('/accept', Auth.guard(), async (req, res) => {
     try {
         // Check if valid trade ID given.
-        const trade = await TradingHelper.get(req.body.trade_id);
+        const trade = await Trading.get(req.body.trade_id);
         if (!trade) throw new Error(`invalid_trade_id`);
 
         // Make sure user cannot accept their own trade.
@@ -66,11 +67,11 @@ TradingRouter.post('/accept', Auth.guard(), async (req, res) => {
             throw new Error(`impossible_accept`);
 
         // Check if user can fulfil the trade.
-        const hasEnough = await ITEMS.hasQty(req.user.discord_id, trade.receive_item, trade.receive_qty);
+        const hasEnough = await Items.hasQty(req.user.discord_id, trade.receive_item, trade.receive_qty);
         if (!hasEnough) throw new Error(`insufficient_offer`);
 
         // Let helper handle accepting logic as it's used in multiple places so far.
-        const tradeAccepted = await TradingHelper._accept(trade, req.user.discord_id);
+        const tradeAccepted = await Trading.resolve(trade, req.user.discord_id);
         if (tradeAccepted)
             return res.status(200).json({ success: true });
         
@@ -101,23 +102,23 @@ TradingRouter.post('/create', Auth.guard(), async (req, res) => {
         const { discord_id, username } = req.user;
 
         // Check item codes are valid.
-        if (!USABLE.isUsable(offer_item)) throw new Error('invalid_offer_item');
-        if (!USABLE.isUsable(receive_item)) throw new Error('invalid_receive_item');
+        if (!Useable.isUsable(offer_item)) throw new Error('invalid_offer_item');
+        if (!Useable.isUsable(receive_item)) throw new Error('invalid_receive_item');
 
         // Check that item quantities are above zero (or one if non-decimal item).
         if (offer_qty <= 0) throw new Error('invalid_offer_qty');
         if (receive_qty <= 0) throw new Error('invalid_receive_qty');
 
         // Check item quanties are owned.
-        const affordable = await ITEMS.hasQty(discord_id, offer_item, offer_qty);
+        const affordable = await Items.hasQty(discord_id, offer_item, offer_qty);
         if (!affordable) throw new Error('invalid_offer_qty');
 
         // Pay the trade offer price.
-        const didUse = await USABLE.use(discord_id, offer_item, offer_qty);
+        const didUse = await Useable.use(discord_id, offer_item, offer_qty);
 
         // Create the trade.
         if (didUse)            
-            result.created_trade = await TradingHelper.create(
+            result.created_trade = await Trading.create(
                 discord_id, username, 
                 offer_item, receive_item,
                 offer_qty, receive_qty

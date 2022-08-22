@@ -1,7 +1,6 @@
 import { Router } from "express";
 import DatabaseHelper from "coop-shared/helper/databaseHelper.mjs";
-import TradingHelper from "../../../../operations/minigames/medium/economy/items/tradingHelper.mjs";
-import { POINTS } from "../../../coop.mjs";
+import Trading from "coop-shared/services/trading.mjs";
 
 const EconomyRouter = Router();
 
@@ -11,13 +10,8 @@ EconomyRouter.get('/', async (req, res) => {
     });
 });
 
-EconomyRouter.get('/leaderboard', async (req, res) => {
-    const leaderboardRows = await POINTS.getLeaderboard(0);
-    res.status(200).json(leaderboardRows);
-});
-
 EconomyRouter.get('/trades', async (req, res) => {
-    const trades = await TradingHelper.all(50);
+    const trades = await Trading.all(50);
     res.status(200).json(trades);
 });
 

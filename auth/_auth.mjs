@@ -3,8 +3,8 @@ import passport from 'passport';
 import jwt from 'jsonwebtoken';
 import { Strategy } from 'passport-jwt';
 
-// This won't work, depends on Discord?
-import { USERS } from '../../coop.mjs';
+import Users from 'coop-shared/services/users.mjs';
+
 
 
 export default class Auth {
@@ -56,7 +56,7 @@ export default class Auth {
 		return new Strategy(opts, async (jwt_payload, done) => {		
 			try {
 				// Check user actually exists.
-				const user = await USERS.loadSingle(jwt_payload.id);				
+				const user = await Users.get(jwt_payload.id);				
 				if (!user) 
 					throw new Error('Token does not represent a member of The Coop.');
 				

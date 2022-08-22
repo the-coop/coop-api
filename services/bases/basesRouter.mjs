@@ -12,6 +12,5 @@ BasesRouter.get('/:base', getBase);
 BasesRouter.get('/base/:base', getBase);
 
 
-
 export default BasesRouter;
 

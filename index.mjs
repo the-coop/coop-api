@@ -11,10 +11,6 @@ import secrets from 'coop-shared/setup/secrets.mjs';
 import APIRouter from './router.mjs';
 import Auth from './auth/_auth.mjs';
 
-// TODO: GAME SERVER HOOK (#2/?)
-import configureWS from './services/socket/configure.mjs';
-
-
 Sentry.init({
     dsn: "https://3182a42df90c41cfb2b6c483c1933668@o1362263.ingest.sentry.io/6653572",
 
@@ -52,10 +48,9 @@ export default async function api() {
     // Attach all the routes to the API.
     app.use('/', APIRouter);
 
-
     // TODO: GAME SERVER HOOK (#2/?)
     // Start listening with the websocket handler.
-    configureWS(server);
+    // configureWS(server);
 
     // Start listening on the app.
     server.listen(process.env.PORT);

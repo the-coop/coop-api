@@ -1,15 +1,15 @@
 import { Router } from "express";
-import ProjectsHelper from "../../../../operations/productivity/projects/projectsHelper.mjs";
+import Projects from "coop-shared/services/projects.mjs";
 
 const ProjectsRouter = Router();
 
 ProjectsRouter.get('/', async (req, res) => {
-    const projects = await ProjectsHelper.all();
+    const projects = await Projects.all();
     res.status(200).json(projects);
 });
 
 ProjectsRouter.get('/:slug', async (req, res) => {
-    const projects = await ProjectsHelper.loadBySlug(req.params.slug);
+    const projects = await Projects.loadBySlug(req.params.slug);
     res.status(200).json(projects);
 });
 

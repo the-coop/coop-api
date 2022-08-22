@@ -1,4 +1,4 @@
-import { USERS } from '../../coop.mjs';
+import Users from 'coop-shared/services/users.mjs';
 import Auth from './_auth.mjs';
 
 export default async function AccessDiscord(result, code) {
@@ -17,7 +17,7 @@ export default async function AccessDiscord(result, code) {
 
 	// Check the user is in the coop
 	const userDiscordID = user.id;
-	const coopMember = !!(await USERS.loadSingle(userDiscordID));
+	const coopMember = !!(await Users.get(userDiscordID));
 	if (!coopMember)
 		throw new Error('Discord user is not a member of The Coop.');
 		

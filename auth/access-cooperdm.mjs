@@ -1,20 +1,20 @@
-import TempAccessCodeHelper from '../../../operations/members/tempAccessCodeHelper.mjs';
-import TimeHelper from '../../../operations/timeHelper.mjs';
-import { USERS } from '../../coop.mjs';
+import Users from 'coop-shared/services/users.mjs';
+import AccessCodes from 'coop-shared/services/access-codes.mjs';
+
 import Auth from './_auth.mjs';
 
 
 export default async function AccessCooperDM(result, code) {
 	// Check validation result =]
-	const request = await TempAccessCodeHelper.validate(code);
+	const request = await AccessCodes.validate(code);
 	if (!request)
 		throw new Error('Cooper DM login request not found.');
 	
 	// Check it hasn't expired.
-	if (TimeHelper._secs() >= request.expires_at)
+	if (Math.round(Date.now() / 1000) >= request.expires_at)
 		throw new Error('Temporary login code expired.');
 
-	const user = await USERS.loadSingle(request.discord_id);
+	const user = await Users.get(request.discord_id);
 
 	// Generate (sign) a JWT token for specified user. =] Beautiful.
 	result.token = Auth.token(request.discord_id, user.username);
