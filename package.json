@@ -21,7 +21,7 @@
     "axios": "^0.21.2",
     "body-parser": "^1.19.0",
     "chance": "^1.1.7",
-    "coop-shared": "git+https://github.com/the-coop/coop-shared.git",
+    "coop-shared": "git+https://github.com/the-coop/coop-shared.git#576810cbc52469723315c64fca8504ed016de451",
     "cors": "^2.8.5",
     "express": "^4.17.1",
     "jsonwebtoken": "^8.5.1",
