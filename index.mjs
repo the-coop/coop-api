@@ -18,7 +18,6 @@ Sentry.init({
     tracesSampleRate: 1.0,
 });
 
-
 export default async function api() {
     // Load secrets.
     await secrets();
@@ -53,8 +52,8 @@ export default async function api() {
     // configureWS(server);
 
     // Start listening on the app.
-    server.listen(process.env.PORT);
-    console.log('API listening, port: ' + process.env.PORT);
+    server.listen(3000);
+    console.log('API listening, port: ' + 3000);
 };
 
 api();
