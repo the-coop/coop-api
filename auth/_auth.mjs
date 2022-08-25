@@ -32,7 +32,7 @@ export default class Auth {
 				code,
 				grant_type: 'authorization_code',
 				redirect_uri:
-					process.env.NODE_ENV === 'production' ?
+					process.env.NODE_ENV !== 'development' ?
 						`https://thecoop.group/auth/authorise`
 						:
 						`http://localhost:3000/auth/authorise`,

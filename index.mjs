@@ -47,6 +47,9 @@ export default async function api() {
     // Attach all the routes to the API.
     app.use('/', APIRouter);
 
+    // process.env.NODE_ENV
+    // console.log(process.env.NODE_ENV);
+
     // TODO: GAME SERVER HOOK (#2/?)
     // Start listening with the websocket handler.
     // configureWS(server);
