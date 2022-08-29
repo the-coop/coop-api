@@ -16,11 +16,6 @@ APIRouter.get('/', (req, res) => res.sendStatus(200));
 
 APIRouter.use('/auth', AuthRouter);
 
-// import BasesRouter from "./services/bases/basesRouter.mjs";
-// import GroundRouter from "./services/conquest/groundRouter.mjs";
-// APIRouter.use('/bases', BasesRouter);
-// APIRouter.use('/ground', GroundRouter);
-
 APIRouter.use('/economy', EconomyRouter);
 APIRouter.use('/trades', TradingRouter);
 

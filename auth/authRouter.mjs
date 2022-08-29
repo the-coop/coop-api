@@ -1,6 +1,6 @@
 import { Router } from "express";
 import Access from "./access.mjs";
-import Auth from "./_auth.mjs";
+import Auth from 'coop-shared/helper/authHelper.mjs';
 
 const AuthRouter = Router();
 

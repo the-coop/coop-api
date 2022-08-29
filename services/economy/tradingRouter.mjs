@@ -4,7 +4,7 @@ import Trading from 'coop-shared/services/trading.mjs';
 import Items from 'coop-shared/services/items.mjs';
 import Useable from 'coop-shared/services/useable.mjs';
 
-import Auth from "../../auth/_auth.mjs";
+import Auth from 'coop-shared/helper/authHelper.mjs';
 
 const TradingRouter = Router();
 

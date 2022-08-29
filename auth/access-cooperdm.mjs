@@ -1,8 +1,7 @@
 import Users from 'coop-shared/services/users.mjs';
 import AccessCodes from 'coop-shared/services/access-codes.mjs';
 
-import Auth from './_auth.mjs';
-
+import Auth from 'coop-shared/helper/authHelper.mjs';
 
 export default async function AccessCooperDM(result, code) {
 	// Check validation result =]

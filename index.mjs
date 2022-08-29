@@ -5,11 +5,11 @@ import passport from 'passport';
 import BodyParser from 'body-parser';
 import * as Sentry from '@sentry/node';
 
-import Database from 'coop-shared/setup/database.mjs';
 import secrets from 'coop-shared/setup/secrets.mjs';
+import Database from 'coop-shared/setup/database.mjs';
+import Auth from 'coop-shared/helper/authHelper.mjs';
 
 import APIRouter from './router.mjs';
-import Auth from './auth/_auth.mjs';
 
 Sentry.init({
     dsn: "https://3182a42df90c41cfb2b6c483c1933668@o1362263.ingest.sentry.io/6653572",

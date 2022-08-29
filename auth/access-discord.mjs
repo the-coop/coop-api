@@ -1,5 +1,5 @@
 import Users from 'coop-shared/services/users.mjs';
-import Auth from './_auth.mjs';
+import Auth from 'coop-shared/helper/authHelper.mjs';
 
 export default async function AccessDiscord(result, code) {
 	// The access token will be needed once to prove the owner's identity.
