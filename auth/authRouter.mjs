@@ -1,6 +1,6 @@
 import { Router } from "express";
 import Access from "./access.mjs";
-import Auth from 'coop-shared/helper/authHelper.mjs';
+import passport from 'passport';
 
 const AuthRouter = Router();
 
@@ -8,7 +8,7 @@ const AuthRouter = Router();
 AuthRouter.post('/access', Access);
 
 // An endpoint mostly related to session/user data during-around authentication.
-AuthRouter.get('/me', Auth.guard(), ({ user }, res) => {
+AuthRouter.get('/me', passport.authenticate('jwt', { session: false }), ({ user }, res) => {
     res.status(200).json({ 
         user: { 
             id: user.discord_id,

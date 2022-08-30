@@ -4,11 +4,13 @@ import Trading from 'coop-shared/services/trading.mjs';
 import Items from 'coop-shared/services/items.mjs';
 import Useable from 'coop-shared/services/useable.mjs';
 
+import passport from 'passport';
+
 import Auth from 'coop-shared/helper/authHelper.mjs';
 
 const TradingRouter = Router();
 
-TradingRouter.get('/mine', Auth.guard(), async (req, res) => {
+TradingRouter.get('/mine', passport.authenticate('jwt', { session: false }), async (req, res) => {
     let trades = [];
 
     try {
@@ -24,7 +26,7 @@ TradingRouter.get('/mine', Auth.guard(), async (req, res) => {
     res.status(200).json(trades);
 });
 
-TradingRouter.delete('/:tradeID', Auth.guard(), async (req, res) => {
+TradingRouter.delete('/:tradeID', passport.authenticate('jwt', { session: false }), async (req, res) => {
     try {
         // Check if valid trade ID given.
         const trade = await Trading.get(req.params.tradeID);
@@ -56,7 +58,7 @@ TradingRouter.get('/:tradeID', async (req, res) => {
     res.status(200).json(trade);
 });
 
-TradingRouter.post('/accept', Auth.guard(), async (req, res) => {
+TradingRouter.post('/accept', passport.authenticate('jwt', { session: false }), async (req, res) => {
     try {
         // Check if valid trade ID given.
         const trade = await Trading.get(req.body.trade_id);
@@ -85,7 +87,7 @@ TradingRouter.post('/accept', Auth.guard(), async (req, res) => {
 });
 
 
-TradingRouter.post('/create', Auth.guard(), async (req, res) => {
+TradingRouter.post('/create', passport.authenticate('jwt', { session: false }), async (req, res) => {
     const result = {
         success: true,
         created_trade: null,
