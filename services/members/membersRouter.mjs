@@ -23,7 +23,6 @@ MembersRouter.get('/build', async (req, res) => {
 });
 
 MembersRouter.get('/build-single/:discordID', async (req, res) => {
-    // TODO: Enhance this with roles
     const user = await Users.loadSingleForStaticGeneration(req.params.discordID);
     return res.status(200).json(user);
 });

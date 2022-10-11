@@ -24,6 +24,8 @@ APIRouter.use('/blog', BlogRouter);
 APIRouter.use('/projects', ProjectsRouter);
 
 APIRouter.use('/donation', DonationRouter);
-APIRouter.use('/adverts', AdvertsRouter)
+
+// Have to rename adverts to prompts or ad blockers prevent loading.
+APIRouter.use('/prompts', AdvertsRouter)
 
 export default APIRouter;

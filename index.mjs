@@ -35,15 +35,6 @@ export default async function api() {
     // Disable security, tighten "later".
     app.use(cors({ origin: '*' }));
 
-    // Allow subdomain API requests from the rest of the domain.
-    app.use(function (req, res, next) {
-        res.setHeader(
-          'Content-Security-Policy', "default-src 'self' *.thecoop.group"
-        );
-        
-        next();
-    });
-
     // Add authentication strategy for protected routes/data.
     passport.use(Auth.strategy());
 
