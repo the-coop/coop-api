@@ -28,9 +28,8 @@ MembersRouter.get('/roles', passport.authenticate('jwt', { session: false }), as
 MembersRouter.post('/roles/toggle', passport.authenticate('jwt', { session: false }), async (req, res) => {
     try {
         // Get the role by ID name.
-        const role = ROLES[
-            Object.keys(ROLES).find(roleKey => ROLES?.[roleKey].id === req.body.role)
-        ];
+        const roleKey = Object.keys(ROLES).find(roleKey => ROLES?.[roleKey].id === req.body.role);
+        const role = ROLES[roleKey];
 
         // Prevent locked roles being added.
         if (role.locked)
@@ -40,8 +39,10 @@ MembersRouter.post('/roles/toggle', passport.authenticate('jwt', { session: fals
         const hasRole = await UserRoles.find(req.user.discord_id, req.body.role);
         if (hasRole)
             await UserRoles.remove(req.user.discord_id, req.body.role);
-        else
-            await UserRoles.add(req.user.discord_id, req.body.role);
+        else {
+            // const roleCode = ROLES._getCoopRoleCodeByID
+            await UserRoles.add(req.user.discord_id, roleKey, req.body.role);
+        }
     
         // Webhook into a channel
         const webhookClient = new WebhookClient({ url: 'https://discord.com/api/webhooks/817551615095078913/uHNjwJslIrnleyNyVkiSzQnZ2m_n0CwEVTIwW_UYwQ4OzpHlOKPaTgXr7LefhOKNYrmk' });
