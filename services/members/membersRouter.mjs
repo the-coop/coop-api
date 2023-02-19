@@ -5,7 +5,9 @@ import Election from "coop-shared/services/election.mjs";
 import UserRoles from "coop-shared/services/userRoles.mjs";
 import ROLES from "coop-shared/config/roles.mjs";
 import passport from "passport";
-import { WebhookClient } from "discord.js";
+import { WebhookClient, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+
+
 
 const MembersRouter = Router();
 
@@ -45,12 +47,25 @@ MembersRouter.post('/roles/toggle', passport.authenticate('jwt', { session: fals
         }
     
         // Webhook into a channel
+
+        const rolesLoginLink = 'https://discord.com/api/oauth2/authorize?method=discord_oauth&client_id=799695179623432222' +
+            "&redirect_uri=https%3A%2F%2Fthecoop.group%2Fauth%2Fauthorise&response_type=code&scope=identify&state=roles";
+
         const webhookClient = new WebhookClient({ url: 'https://discord.com/api/webhooks/817551615095078913/uHNjwJslIrnleyNyVkiSzQnZ2m_n0CwEVTIwW_UYwQ4OzpHlOKPaTgXr7LefhOKNYrmk' });
         webhookClient.send({
             content: `<@${req.user.discord_id}> toggled role <@&${role.id}> ${req.body.preference ? 'on' : 'off'}.`,
             username: 'API',
             avatarURL: 'https://cdn.discordapp.com/attachments/902593785500946472/1050617078073282560/2051c96e1868d0ea1253f25b79dd8596-2-3.png',
-            allowedMentions: { users: [], roles: [] }
+            allowedMentions: { users: [], roles: [] },
+            components: [
+                new ActionRowBuilder().addComponents([
+                    new ButtonBuilder()
+                        .setEmoji('⚙️')
+                        .setLabel("Roles")
+                        .setURL(rolesLoginLink)
+                        .setStyle(ButtonStyle.Link)
+                ])
+            ]
         });
 
         return res.status(200).json({ success: true });
