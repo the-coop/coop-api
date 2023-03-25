@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import http from 'http';
 import cors from 'cors';
 import express from 'express';
@@ -5,7 +8,6 @@ import passport from 'passport';
 import BodyParser from 'body-parser';
 import * as Sentry from '@sentry/node';
 
-import secrets from 'coop-shared/setup/secrets.mjs';
 import Database from 'coop-shared/setup/database.mjs';
 import Auth from 'coop-shared/helper/authHelper.mjs';
 
@@ -19,8 +21,6 @@ Sentry.init({
 });
 
 export default async function api() {
-    // Load secrets.
-    await secrets();
 
     // Connect to PostGres Database and attach event/error handlers.
     await Database.connect();

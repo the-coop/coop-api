@@ -605,9 +605,9 @@ cookiejar@^2.1.2:
   resolved "https://registry.yarnpkg.com/cookiejar/-/cookiejar-2.1.3.tgz#fc7a6216e408e74414b90230050842dacda75acc"
   integrity sha512-JxbCBUdrfr6AQjOXrxoTvAMJO4HBTUIlBzslcJPAz+/KT8yk53fXun51u+RenNYvad/+Vc2DIz5o9UxlCDymFQ==
 
-"coop-shared@git+https://github.com/the-coop/coop-shared.git#ab01a744f451c2cd183715999a44d4ff89a95831":
+"coop-shared@git+https://github.com/the-coop/coop-shared.git#a40e2f170ba553229ee614d376889ef92f97a417":
   version "1.0.26"
-  resolved "git+https://github.com/the-coop/coop-shared.git#ab01a744f451c2cd183715999a44d4ff89a95831"
+  resolved "git+https://github.com/the-coop/coop-shared.git#a40e2f170ba553229ee614d376889ef92f97a417"
   dependencies:
     aws-sdk "^2.1198.0"
     axios "^0.27.2"
@@ -717,6 +717,11 @@ doctrine@^3.0.0:
   integrity sha512-yS+Q5i3hBf7GBkd4KG8a7eBNNWNGLTaEwwYWUijIYM7zrlYDM0BFXHjjPWlWZ1Rg7UaddZeIDmi9jF3HmqiQ2w==
   dependencies:
     esutils "^2.0.2"
+
+dotenv@^16.0.3:
+  version "16.0.3"
+  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-16.0.3.tgz#115aec42bac5053db3c456db30cc243a5a836a07"
+  integrity sha512-7GO6HghkA5fYG9TYnNxi14/7K9f5occMlp3zXAuSxn7CKCxt9xbNWG7yF8hTCSUchlfWSe3uLmlPfigevRItzQ==
 
 ecdsa-sig-formatter@1.0.11:
   version "1.0.11"
