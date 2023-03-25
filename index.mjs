@@ -48,8 +48,8 @@ export default async function api() {
     app.use('/', APIRouter);
 
     // Start listening on the app.
-    server.listen(3000);
-    console.log('API listening, port: ' + 3000);
+    server.listen(process.env.PORT);
+    console.log('API listening, port: ' + process.env.PORT);
 };
 
 api();
