@@ -1,6 +1,7 @@
 import { Router } from "express";
 import DatabaseHelper from "coop-shared/helper/databaseHelper.mjs";
 import Trading from "coop-shared/services/trading.mjs";
+import Users from "coop-shared/services/users.mjs";
 
 const EconomyRouter = Router();
 
@@ -16,11 +17,12 @@ EconomyRouter.get('/trades', async (req, res) => {
 });
 
 EconomyRouter.get('/items', async (req, res) => {
+    const numMembers = await Users.count();
     const items = await DatabaseHelper.manyQuery({
         name: 'all-items',
         text: `
             SELECT * FROM (
-                SELECT DISTINCT ON (i.item_code) i.item_code, i.owner_id, i.quantity, total_qty, ROUND((i.quantity / total_qty) * 100) as share
+                SELECT DISTINCT ON (i.item_code) i.item_code, i.owner_id, i.quantity, total_qty, ROUND(i.quantity / ${numMembers}) as share
                 FROM items i
     
                 INNER JOIN ( 
