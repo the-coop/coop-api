@@ -22,7 +22,7 @@ EconomyRouter.get('/items', async (req, res) => {
         name: 'all-items',
         text: `
             SELECT * FROM (
-                SELECT DISTINCT ON (i.item_code) i.item_code, i.owner_id, i.quantity, total_qty, ROUND(i.quantity / ${numMembers}) as share
+                SELECT DISTINCT ON (i.item_code) i.item_code, i.owner_id, i.quantity, total_qty, (i.quantity / ${numMembers}) as share
                 FROM items i
     
                 INNER JOIN ( 
