@@ -21,6 +21,10 @@ export default async function Access(req, res) {
 			result = await AccessCooperDM(result, code);
 		}
 
+		console.log('login request');
+		console.log(req);
+		console.log('end login request');
+
 	} catch (error) {
 		// Log the error at least during early release.
 		console.error(error);

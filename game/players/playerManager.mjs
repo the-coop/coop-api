@@ -27,6 +27,8 @@ export default class PlayerManager {
             const rotation = { x: 0, y: 0, z: 0, w: 0 };
             const velocity = { x: 0, y: 0, z: 0 };
             PlayerManager.spawn(token, socket, position, rotation, velocity);
+
+            // TODO: Add spawn calculated point to database.
         }
 
         // TODO: If already loaded, create a new event or use player_recognised to distinguish loading/spawning.
@@ -105,5 +107,15 @@ export default class PlayerManager {
 
         // Inform all users someone connected.
         GameSocket.conn.emit('player_recognised', player);
+
+        // TODO: The player has to be informed of all players spawned before them.
+        // This seems the best place because it can be targetted/local to the player.
+        // The home/background conquest world can load players local to first planet.
+
+        // const specificClientId = 'socketIdHere'; 
+        // Replace with the actual socket ID
+        
+        // Emit all connected players to the connecting player.
+        socket.emit('existing_players', GameSocket.players);     
   }
 }
