@@ -21,9 +21,12 @@ export default async function Access(req, res) {
 			result = await AccessCooperDM(result, code);
 		}
 
+		// This is for posting in feed when someone logs in to website.
 		console.log('login request');
-		console.log(req);
-		console.log('end login request');
+		console.log(result);
+		
+		// console.log(req);
+		// console.log('end login request');
 
 	} catch (error) {
 		// Log the error at least during early release.
