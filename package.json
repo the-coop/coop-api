@@ -18,7 +18,7 @@
     "socket.io": "^4.5.1",
     "body-parser": "^1.19.0",
     "chance": "^1.1.7",
-    "coop-shared": "git+https://github.com/the-coop/coop-shared.git#68addf52193e27e0bf5368676bf18c0d80610ca0",
+    "coop-shared": "git+https://github.com/the-coop/coop-shared.git#5cc966d1c433ae308b8da5eb4ae93e7a1049b099",
     "cors": "^2.8.5",
     "discord.js": "^14.6.0",
     "dotenv": "^16.0.3",
