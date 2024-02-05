@@ -9,9 +9,6 @@
     "lint": "eslint ."
   },
   "author": "coop-group",
-  "engines": {
-    "node": "16.x"
-  },
   "dependencies": {
     "axios": "^0.27.2",
     "express": "^4.18.1",
