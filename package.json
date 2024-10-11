@@ -11,20 +11,20 @@
   "author": "coop-group",
   "dependencies": {
     "axios": "^0.27.2",
-    "express": "^4.18.1",
-    "socket.io": "^4.5.1",
     "body-parser": "^1.19.0",
     "chance": "^1.1.7",
     "coop-shared": "git+https://github.com/the-coop/coop-shared.git#b6a2a36a6698814852965971d94b9f584b6edaf2",
     "cors": "^2.8.5",
     "discord.js": "^14.6.0",
     "dotenv": "^16.0.3",
+    "express": "^4.18.1",
     "jsonwebtoken": "^8.5.1",
     "lodash": "^4.17.21",
     "moment": "^2.29.2",
     "passport": "^0.6.0",
     "passport-jwt": "^4.0.0",
-    "pg": "^8.4.1"
+    "pg": "^8.4.1",
+    "socket.io": "^4.5.1"
   },
   "devDependencies": {
     "eslint": "^7.24.0",

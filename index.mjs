@@ -1,4 +1,5 @@
 import * as dotenv from 'dotenv';
+
 dotenv.config();
 
 import PlayerManager from './game/players/playerManager.mjs';
@@ -15,9 +16,6 @@ import Auth from 'coop-shared/helper/authHelper.mjs';
 
 import APIRouter from './router.mjs';
 
-// TODO:
-// Make the client/game assume the first world/instance
-// Improve world switching/region detection later on!
 
 export class GameSocket {
     static conn = null;
@@ -41,7 +39,7 @@ export default async function api() {
     app.use(BodyParser.urlencoded({ extended: false }));
     app.use(BodyParser.json());
 
-    // Disable security, tighten "later".
+    // Allow local testing and production requests.
     app.use(cors({ origin: '*' }));
 
     // Add authentication strategy for protected routes/data.
