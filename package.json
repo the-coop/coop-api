@@ -10,7 +10,9 @@
   },
   "author": "coop-group",
   "dependencies": {
-    "coop-shared": "git+https://github.com/the-coop/coop-shared.git#0471a5b7883b5a5c2055144b42977cb7e9b9c676"
+    "@dimforge/rapier3d-compat": "^0.17.1",
+    "coop-shared": "git+https://github.com/the-coop/coop-shared.git#0471a5b7883b5a5c2055144b42977cb7e9b9c676",
+    "ws": "^8.18.2"
   },
   "devDependencies": {
     "eslint": "^7.24.0",
@@ -25,5 +27,6 @@
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/lmf-git/coop-api/issues"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
