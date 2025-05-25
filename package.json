@@ -10,7 +10,7 @@
   },
   "author": "coop-group",
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.17.1",
+    "@dimforge/rapier3d": "^0.17.1",
     "coop-shared": "git+https://github.com/the-coop/coop-shared.git#0471a5b7883b5a5c2055144b42977cb7e9b9c676",
     "ws": "^8.18.2"
   },
