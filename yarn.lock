@@ -24,6 +24,11 @@
     js-tokens "^4.0.0"
     picocolors "^1.0.0"
 
+"@dimforge/rapier3d-compat@^0.17.1":
+  version "0.17.1"
+  resolved "https://registry.yarnpkg.com/@dimforge/rapier3d-compat/-/rapier3d-compat-0.17.1.tgz#50129da7892b36ae23e08178c4b9dac905b41bf2"
+  integrity sha512-ZDBGwh/VoeLbyn+p9MFNN8bbuGzJHdhAk5nzuOj4ORA089RAVQhauWGZDgYNYRzyDgO27NvxcUclVoRDwhf2Qw==
+
 "@dimforge/rapier3d@^0.17.1":
   version "0.17.1"
   resolved "https://registry.yarnpkg.com/@dimforge/rapier3d/-/rapier3d-0.17.1.tgz#91ca2ec96288c6a487375278011f97412028bb96"
@@ -131,6 +136,11 @@ astral-regex@^2.0.0:
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/astral-regex/-/astral-regex-2.0.0.tgz#483143c567aeed4785759c0865786dc77d7d2e31"
   integrity sha512-Z7tMw1ytTXt5jqMcOP+OQteU1VuNK9Y02uuJtKQ1Sv69jXQKKg5cibLwGJow8yzZP+eAc18EmLGPal0bp36rvQ==
+
+atob@^2.1.2:
+  version "2.1.2"
+  resolved "https://registry.yarnpkg.com/atob/-/atob-2.1.2.tgz#6d9517eb9e030d2436666651e86bd9f6f13533c9"
+  integrity sha512-Wm6ukoaOGJi/73p/cl2GvLjTI5JM1k/O14isD73YML8StrH/7/lRFgmg8nICZgD3bZZvjwCGxtMOD3wWNAu8cg==
 
 balanced-match@^1.0.0:
   version "1.0.2"

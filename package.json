@@ -4,13 +4,12 @@
   "description": "Single server community bot",
   "type": "module",
   "scripts": {
-    "start": "pm2 kill && pm2 start ./index.mjs",
-    "dev": "NODE_ENV=development nodemon ./index.mjs",
+    "start": "pm2 kill && pm2 start ./index.js",
+    "dev": "NODE_ENV=development nodemon ./index.js",
     "lint": "eslint ."
   },
   "author": "coop-group",
   "dependencies": {
-    "@dimforge/rapier3d": "^0.17.1",
     "coop-shared": "git+https://github.com/the-coop/coop-shared.git#0471a5b7883b5a5c2055144b42977cb7e9b9c676",
     "ws": "^8.18.2"
   },
