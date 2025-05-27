@@ -13,6 +13,7 @@ pub struct PhysicsWorld {
     pub multibody_joint_set: MultibodyJointSet,
     pub ccd_solver: CCDSolver,
     pub gravity: Vector3<f32>,
+    pub moving_platforms: Vec<(RigidBodyHandle, f32, Option<serde_json::Value>)>, // body, initial_x, properties
 }
 
 impl PhysicsWorld {
@@ -41,6 +42,7 @@ impl PhysicsWorld {
             multibody_joint_set,
             ccd_solver,
             gravity,
+            moving_platforms: Vec::new(),
         }
     }
 
@@ -142,7 +144,6 @@ impl PhysicsWorld {
         self.rigid_body_set.insert(rigid_body)
     }
 
-    #[allow(dead_code)]
     pub fn create_ball_collider(
         &mut self,
         body_handle: RigidBodyHandle,
@@ -162,7 +163,6 @@ impl PhysicsWorld {
         )
     }
 
-    #[allow(dead_code)]
     pub fn update_dynamic_body(
         &mut self,
         handle: RigidBodyHandle,
@@ -176,7 +176,6 @@ impl PhysicsWorld {
         }
     }
 
-    #[allow(dead_code)]
     pub fn get_body_state(&self, handle: RigidBodyHandle) -> Option<(Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> {
         self.rigid_body_set.get(handle).map(|body| {
             let pos = body.position();
@@ -186,5 +185,68 @@ impl PhysicsWorld {
                 body.linvel().clone() // Clone to get owned Vector3
             )
         })
+    }
+
+    pub fn remove_dynamic_body(
+        &mut self,
+        body_handle: RigidBodyHandle,
+        _collider_handle: ColliderHandle,
+    ) {
+        self.rigid_body_set.remove(
+            body_handle,
+            &mut self.island_manager,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            true,
+        );
+    }
+
+    pub fn create_fixed_body(&mut self, translation: Vector3<f32>) -> RigidBodyHandle {
+        let rigid_body = RigidBodyBuilder::fixed()
+            .translation(translation)
+            .build();
+
+        self.rigid_body_set.insert(rigid_body)
+    }
+
+    pub fn create_fixed_body_with_rotation(&mut self, translation: Vector3<f32>, rotation: UnitQuaternion<f32>) -> RigidBodyHandle {
+        let rigid_body = RigidBodyBuilder::fixed()
+            .translation(translation)
+            .rotation(rotation.scaled_axis())
+            .build();
+
+        self.rigid_body_set.insert(rigid_body)
+    }
+
+    pub fn create_kinematic_body(&mut self, translation: Vector3<f32>) -> RigidBodyHandle {
+        let rigid_body = RigidBodyBuilder::kinematic_position_based()
+            .translation(translation)
+            .build();
+
+        self.rigid_body_set.insert(rigid_body)
+    }
+
+    pub fn update_moving_platforms(&mut self, time: f32) {
+        for (handle, initial_x, properties) in &self.moving_platforms {
+            if let Some(body) = self.rigid_body_set.get_mut(*handle) {
+                let move_range = properties.as_ref()
+                    .and_then(|p| p.get("move_range"))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(20.0) as f32;
+                
+                let move_speed = properties.as_ref()
+                    .and_then(|p| p.get("move_speed"))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.2) as f32;
+                
+                let offset = (time * move_speed).sin() * move_range;
+                let new_x = initial_x + offset;
+                
+                let mut pos = *body.position();
+                pos.translation.x = new_x;
+                body.set_next_kinematic_position(pos);
+            }
+        }
     }
 }

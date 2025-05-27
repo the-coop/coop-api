@@ -6,6 +6,7 @@ use axum::{
     Router,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
+use nalgebra::{Vector3, UnitQuaternion};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{self, sync::mpsc, sync::RwLock};
 use tower_http::cors::CorsLayer;
@@ -16,11 +17,13 @@ mod messages;
 mod physics;
 mod player;
 mod dynamic_objects;
+mod level;
 
 use messages::*;
 use physics::PhysicsWorld;
 use player::PlayerManager;
 use dynamic_objects::DynamicObjectManager;
+use level::Level;
 
 type SharedState = Arc<RwLock<AppState>>;
 
@@ -28,27 +31,119 @@ struct AppState {
     players: PlayerManager,
     physics: PhysicsWorld,
     dynamic_objects: DynamicObjectManager,
+    level: Level,
 }
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    // Create level and physics
+    let level = Level::create_default_multiplayer_level();
+    let mut physics = PhysicsWorld::new();
+    
+    // Build physics world from level
+    level.build_physics(&mut physics);
+
     let state = Arc::new(RwLock::new(AppState {
         players: PlayerManager::new(),
-        physics: PhysicsWorld::new(),
+        physics,
         dynamic_objects: DynamicObjectManager::new(),
+        level,
     }));
 
     // Spawn physics update loop
     let physics_state = state.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(16)); // 60 FPS
+        let start_time = std::time::Instant::now();
+        
         loop {
             interval.tick().await;
             let mut state = physics_state.write().await;
-            // Just step physics - player physics updates will happen separately
+            
+            // Update moving platforms
+            let elapsed = start_time.elapsed().as_secs_f32();
+            state.physics.update_moving_platforms(elapsed);
+            
+            // Step physics
             state.physics.step();
+            
+            // Update dynamic objects from physics
+            let updates: Vec<(String, Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> = state.dynamic_objects
+                .iter()
+                .filter_map(|entry| {
+                    let obj = entry.value();
+                    if let Some(handle) = obj.body_handle {
+                        state.physics.get_body_state(handle).map(|(pos, rot, vel)| {
+                            (obj.id.clone(), pos, rot, vel)
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            // Apply updates
+            for (id, pos, rot, vel) in updates {
+                state.dynamic_objects.update_from_physics(&id, pos, rot, vel);
+                
+                // Check if object needs physics body repositioning due to origin change
+                // Extract the data we need first to avoid borrow conflicts
+                let needs_reposition = state.dynamic_objects.get_object(&id)
+                    .and_then(|obj| {
+                        if obj.position.magnitude() < 0.1 && obj.body_handle.is_some() {
+                            Some((obj.body_handle, obj.rotation.clone(), obj.velocity.clone()))
+                        } else {
+                            None
+                        }
+                    });
+                
+                // Now update the physics body if needed
+                if let Some((Some(handle), rotation, velocity)) = needs_reposition {
+                    state.physics.update_dynamic_body(handle, Vector3::zeros(), rotation, velocity);
+                }
+            }
+            
+            // Broadcast dynamic object updates to all players
+            let object_updates: Vec<(String, Vector3<f64>, UnitQuaternion<f32>, Vector3<f32>)> = 
+                state.dynamic_objects.iter()
+                    .map(|entry| {
+                        let obj = entry.value();
+                        (obj.id.clone(), obj.get_world_position(), obj.rotation, obj.velocity)
+                    })
+                    .collect();
+            
+            for (object_id, world_pos, rotation, velocity) in object_updates {
+                for player_entry in state.players.iter() {
+                    let receiver = player_entry.value();
+                    
+                    // Calculate position relative to receiver's origin
+                    let relative_pos = world_pos - receiver.world_origin;
+                    
+                    let update_msg = ServerMessage::DynamicObjectUpdate {
+                        object_id: object_id.clone(),
+                        position: Position {
+                            x: relative_pos.x as f32,
+                            y: relative_pos.y as f32,
+                            z: relative_pos.z as f32,
+                        },
+                        rotation: Rotation {
+                            x: rotation.i,
+                            y: rotation.j,
+                            z: rotation.k,
+                            w: rotation.w,
+                        },
+                        velocity: Velocity {
+                            x: velocity.x,
+                            y: velocity.y,
+                            z: velocity.z,
+                        },
+                    };
+                    
+                    receiver.send_message(&update_msg).await;
+                }
+            }
         }
     });
 
@@ -110,11 +205,19 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 
     // Add player to game
     {
-        let state_read = state.read().await;
-        state_read.players.add_player(player_id, spawn_position, tx.clone());
+        let mut state_write = state.write().await;
+        state_write.players.add_player(player_id, spawn_position, tx.clone());
+
+        // Send level data to new player (only in multiplayer)
+        let level_msg = ServerMessage::LevelData {
+            objects: state_write.level.objects.clone(),
+        };
+        if tx.send(Message::Text(serde_json::to_string(&level_msg).unwrap())).is_err() {
+            error!("Failed to send level data to {}", player_id);
+        }
 
         // Send existing players to new player
-        let players_list = state_read.players.get_all_players_except(player_id);
+        let players_list = state_write.players.get_all_players_except(player_id);
         let list_msg = ServerMessage::PlayersList { players: players_list };
         
         if tx.send(Message::Text(serde_json::to_string(&list_msg).unwrap())).is_err() {
@@ -122,8 +225,8 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         }
 
         // Send existing dynamic objects to new player
-        if let Some(player) = state_read.players.get_player(player_id) {
-            let objects = state_read.dynamic_objects.get_all_objects_relative_to(&player.world_origin);
+        if let Some(player) = state_write.players.get_player(player_id) {
+            let objects = state_write.dynamic_objects.get_all_objects_relative_to(&player.world_origin);
             if !objects.is_empty() {
                 let objects_msg = ServerMessage::DynamicObjectsList { objects };
                 if tx.send(Message::Text(serde_json::to_string(&objects_msg).unwrap())).is_err() {
@@ -139,12 +242,18 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
             spawn_position.z as f64 + (-10.0 + rand::random::<f64>() * 20.0),
         );
         
-        let rock_id = state_read.dynamic_objects.spawn_rock(rock_spawn_pos);
+        // Create physics body for the rock
+        let rock_physics_pos = Vector3::new(0.0, 0.0, 0.0); // Start at origin relative to rock's world origin
+        let body_handle = state_write.physics.create_dynamic_body(rock_physics_pos, UnitQuaternion::identity());
+        let scale = 0.8 + rand::random::<f32>() * 0.4;
+        let collider_handle = state_write.physics.create_ball_collider(body_handle, 2.0 * scale, 0.3);
+        
+        let rock_id = state_write.dynamic_objects.spawn_rock_with_physics(rock_spawn_pos, body_handle, collider_handle);
         
         // Broadcast rock spawn to all players
-        for entry in state_read.players.iter() {
+        for entry in state_write.players.iter() {
             let receiver = entry.value();
-            if let Some(spawn_msg) = state_read.dynamic_objects.get_spawn_message(&rock_id, &receiver.world_origin) {
+            if let Some(spawn_msg) = state_write.dynamic_objects.get_spawn_message(&rock_id, &receiver.world_origin) {
                 receiver.send_message(&spawn_msg).await;
             }
         }
@@ -154,7 +263,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
             player_id: player_id.to_string(),
             position: Position { x: spawn_position.x, y: spawn_position.y, z: spawn_position.z },
         };
-        state_read.players.broadcast_except(player_id, &join_msg).await;
+        state_write.players.broadcast_except(player_id, &join_msg).await;
     }
 
     info!("Player {} connected", player_id);
@@ -181,14 +290,17 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 
     // Clean up when player disconnects
     {
-        let state_read = state.read().await;
-        state_read.players.remove_player(player_id);
+        let mut state_write = state.write().await;
+        state_write.players.remove_player(player_id);
+        
+        // Remove any dynamic objects owned by this player (if applicable)
+        // For now, we keep rocks in the world
         
         // Broadcast player left
         let leave_msg = ServerMessage::PlayerLeft {
             player_id: player_id.to_string(),
         };
-        state_read.players.broadcast_to_all(&leave_msg).await;
+        state_write.players.broadcast_to_all(&leave_msg).await;
     }
 
     // Cancel the sender task
@@ -252,49 +364,10 @@ async fn handle_client_message(
                 }
             }
         }
-        ClientMessage::DynamicObjectUpdate { object_id, position, rotation, velocity } => {
-            // Update dynamic object state with local coordinates
-            let update_result = {
-                let state_read = state.read().await;
-                
-                // Update object with local coordinates (relative to its own origin)
-                state_read.dynamic_objects.update_object(&object_id, position.clone(), rotation.clone(), velocity.clone());
-                
-                // Get the object's world position for broadcasting
-                let result = state_read.dynamic_objects.get_object(&object_id)
-                    .map(|object| {
-                        let world_pos = object.get_world_position();
-                        let origin = object.world_origin.clone();
-                        (world_pos, origin)
-                    });
-                
-                result
-            };
-            
-            // Broadcast to all players with position relative to each player's origin
-            if let Some((world_pos, _object_origin)) = update_result {
-                let state_read = state.read().await;
-                
-                for entry in state_read.players.iter() {
-                    let receiver = entry.value();
-                    
-                    // Calculate position relative to receiver's origin
-                    let relative_pos = world_pos - receiver.world_origin;
-                    
-                    let update_msg = ServerMessage::DynamicObjectUpdate {
-                        object_id: object_id.clone(),
-                        position: Position {
-                            x: relative_pos.x as f32,
-                            y: relative_pos.y as f32,
-                            z: relative_pos.z as f32,
-                        },
-                        rotation: rotation.clone(),
-                        velocity: velocity.clone(),
-                    };
-                    
-                    receiver.send_message(&update_msg).await;
-                }
-            }
+        ClientMessage::DynamicObjectUpdate { object_id: _, position: _, rotation: _, velocity: _ } => {
+            // Client shouldn't send these anymore since server controls physics
+            // Ignore or log warning
+            tracing::warn!("Received dynamic object update from client - ignoring (server authoritative)");
         }
         ClientMessage::PlayerAction { action, .. } => {
             // Handle other player actions if needed

@@ -91,6 +91,9 @@ pub enum ServerMessage {
     DynamicObjectsList {
         objects: Vec<DynamicObjectInfo>,
     },
+    LevelData {
+        objects: Vec<LevelObject>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -109,4 +112,20 @@ pub struct DynamicObjectInfo {
     pub position: Position,
     pub rotation: Rotation,
     pub scale: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LevelObject {
+    pub object_type: String,
+    pub position: Position,
+    pub rotation: Option<Rotation>,
+    pub scale: Option<Vec3>,
+    pub properties: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Vec3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }

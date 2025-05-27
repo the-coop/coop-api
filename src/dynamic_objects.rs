@@ -1,6 +1,7 @@
 use crate::messages::{DynamicObjectInfo, Position, Rotation, ServerMessage, Velocity};
 use dashmap::DashMap;
 use nalgebra::{UnitQuaternion, Vector3};
+use rapier3d::prelude::*;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -12,6 +13,8 @@ pub struct DynamicObject {
     pub rotation: UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub scale: f32,
+    pub body_handle: Option<RigidBodyHandle>, // Physics body handle
+    pub collider_handle: Option<ColliderHandle>, // Physics collider handle
 }
 
 impl DynamicObject {
@@ -24,6 +27,8 @@ impl DynamicObject {
             rotation: UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             scale,
+            body_handle: None,
+            collider_handle: None,
         }
     }
 
@@ -43,6 +48,24 @@ impl DynamicObject {
             self.world_origin.y += self.position.y as f64;
             self.world_origin.z += self.position.z as f64;
             self.position = Vector3::zeros();
+        }
+    }
+
+    pub fn update_from_physics(&mut self, position: Vector3<f32>, rotation: UnitQuaternion<f32>, velocity: Vector3<f32>) {
+        self.position = position;
+        self.rotation = rotation;
+        self.velocity = velocity;
+        
+        // Check if we need to update floating origin
+        let distance_from_origin = self.position.magnitude();
+        if distance_from_origin > 1000.0 {
+            self.world_origin.x += self.position.x as f64;
+            self.world_origin.y += self.position.y as f64;
+            self.world_origin.z += self.position.z as f64;
+            self.position = Vector3::zeros();
+            
+            // Return true to indicate origin changed and physics body needs repositioning
+            // For now, we'll handle this in the physics update loop
         }
     }
 
@@ -100,15 +123,45 @@ impl DynamicObjectManager {
         id
     }
 
+    pub fn spawn_rock_with_physics(
+        &self, 
+        world_position: Vector3<f64>, 
+        body_handle: RigidBodyHandle,
+        collider_handle: ColliderHandle
+    ) -> String {
+        let scale = 0.8 + rand::random::<f32>() * 0.4; // 0.8 to 1.2
+        let mut rock = DynamicObject::new("rock".to_string(), world_position, scale);
+        rock.body_handle = Some(body_handle);
+        rock.collider_handle = Some(collider_handle);
+        let id = rock.id.clone();
+        self.objects.insert(id.clone(), rock);
+        id
+    }
+
     pub fn update_object(&self, id: &str, pos: Position, rot: Rotation, vel: Velocity) {
         if let Some(mut object) = self.objects.get_mut(id) {
             object.update_state(pos, rot, vel);
         }
     }
 
-    #[allow(dead_code)]
-    pub fn remove_object(&self, id: &str) -> Option<DynamicObject> {
-        self.objects.remove(id).map(|(_, obj)| obj)
+    pub fn update_from_physics(
+        &self, 
+        id: &str, 
+        position: Vector3<f32>, 
+        rotation: UnitQuaternion<f32>, 
+        velocity: Vector3<f32>
+    ) {
+        if let Some(mut object) = self.objects.get_mut(id) {
+            object.update_from_physics(position, rotation, velocity);
+        }
+    }
+
+    pub fn remove_object(&self, id: &str) -> Option<(DynamicObject, Option<RigidBodyHandle>, Option<ColliderHandle>)> {
+        self.objects.remove(id).map(|(_, obj)| {
+            let body = obj.body_handle;
+            let collider = obj.collider_handle;
+            (obj, body, collider)
+        })
     }
 
     pub fn get_object(&self, id: &str) -> Option<dashmap::mapref::one::Ref<String, DynamicObject>> {
@@ -137,5 +190,9 @@ impl DynamicObjectManager {
                 scale: obj.scale,
             }
         })
+    }
+
+    pub fn iter(&self) -> dashmap::iter::Iter<String, DynamicObject> {
+        self.objects.iter()
     }
 }
