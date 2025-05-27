@@ -78,7 +78,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
     let (tx, mut rx) = mpsc::unbounded_channel();
     
     // Spawn task to handle outgoing messages for this player
-    let mut send_task = tokio::spawn(async move {
+    let send_task = tokio::spawn(async move {
         let mut sender = sender;
         while let Some(msg) = rx.recv().await {
             if sender.send(msg).await.is_err() {
