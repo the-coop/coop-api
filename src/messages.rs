@@ -35,6 +35,12 @@ pub enum ClientMessage {
         #[serde(flatten)]
         data: serde_json::Value,
     },
+    DynamicObjectUpdate {
+        object_id: String,
+        position: Position,
+        rotation: Rotation,
+        velocity: Velocity,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -66,6 +72,25 @@ pub enum ServerMessage {
     OriginUpdate {
         origin: Position,
     },
+    DynamicObjectSpawn {
+        object_id: String,
+        object_type: String,
+        position: Position,
+        rotation: Rotation,
+        scale: f32,
+    },
+    DynamicObjectUpdate {
+        object_id: String,
+        position: Position,
+        rotation: Rotation,
+        velocity: Velocity,
+    },
+    DynamicObjectRemove {
+        object_id: String,
+    },
+    DynamicObjectsList {
+        objects: Vec<DynamicObjectInfo>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -74,4 +99,14 @@ pub struct PlayerInfo {
     pub position: Position,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rotation: Option<Rotation>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DynamicObjectInfo {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub object_type: String,
+    pub position: Position,
+    pub rotation: Rotation,
+    pub scale: f32,
 }

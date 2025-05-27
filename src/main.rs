@@ -15,16 +15,19 @@ use uuid::Uuid;
 mod messages;
 mod physics;
 mod player;
+mod dynamic_objects;
 
 use messages::*;
 use physics::PhysicsWorld;
 use player::PlayerManager;
+use dynamic_objects::DynamicObjectManager;
 
 type SharedState = Arc<RwLock<AppState>>;
 
 struct AppState {
     players: PlayerManager,
     physics: PhysicsWorld,
+    dynamic_objects: DynamicObjectManager,
 }
 
 #[tokio::main]
@@ -34,6 +37,7 @@ async fn main() {
     let state = Arc::new(RwLock::new(AppState {
         players: PlayerManager::new(),
         physics: PhysicsWorld::new(),
+        dynamic_objects: DynamicObjectManager::new(),
     }));
 
     // Spawn physics update loop
@@ -115,6 +119,34 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         
         if tx.send(Message::Text(serde_json::to_string(&list_msg).unwrap())).is_err() {
             error!("Failed to send players list to {}", player_id);
+        }
+
+        // Send existing dynamic objects to new player
+        if let Some(player) = state_read.players.get_player(player_id) {
+            let objects = state_read.dynamic_objects.get_all_objects_relative_to(&player.world_origin);
+            if !objects.is_empty() {
+                let objects_msg = ServerMessage::DynamicObjectsList { objects };
+                if tx.send(Message::Text(serde_json::to_string(&objects_msg).unwrap())).is_err() {
+                    error!("Failed to send dynamic objects list to {}", player_id);
+                }
+            }
+        }
+
+        // Spawn a rock for this player joining
+        let rock_spawn_pos = nalgebra::Vector3::new(
+            spawn_position.x as f64 + (-10.0 + rand::random::<f64>() * 20.0),
+            spawn_position.y as f64 + 20.0, // 20 units above spawn
+            spawn_position.z as f64 + (-10.0 + rand::random::<f64>() * 20.0),
+        );
+        
+        let rock_id = state_read.dynamic_objects.spawn_rock(rock_spawn_pos);
+        
+        // Broadcast rock spawn to all players
+        for entry in state_read.players.iter() {
+            let receiver = entry.value();
+            if let Some(spawn_msg) = state_read.dynamic_objects.get_spawn_message(&rock_id, &receiver.world_origin) {
+                receiver.send_message(&spawn_msg).await;
+            }
         }
 
         // Broadcast new player to others
@@ -217,6 +249,48 @@ async fn handle_client_message(
                 // Send origin update to the player if it changed
                 if origin_updated {
                     state_read.players.send_origin_update(player_id).await;
+                }
+            }
+        }
+        ClientMessage::DynamicObjectUpdate { object_id, position, rotation, velocity } => {
+            // Update dynamic object state
+            {
+                let state_read = state.read().await;
+                
+                // Convert position to world coordinates if needed
+                if let Some(player) = state_read.players.get_player(player_id) {
+                    let world_pos = Position {
+                        x: (player.world_origin.x + position.x as f64) as f32,
+                        y: (player.world_origin.y + position.y as f64) as f32,
+                        z: (player.world_origin.z + position.z as f64) as f32,
+                    };
+                    
+                    state_read.dynamic_objects.update_object(&object_id, world_pos, rotation.clone(), velocity.clone());
+                }
+            }
+            
+            // Broadcast to all players
+            let state_read = state.read().await;
+            for entry in state_read.players.iter() {
+                let receiver = entry.value();
+                
+                if let Some(object) = state_read.dynamic_objects.get_object(&object_id) {
+                    let update_msg = ServerMessage::DynamicObjectUpdate {
+                        object_id: object_id.clone(),
+                        position: object.get_position_relative_to(&receiver.world_origin),
+                        rotation: Rotation {
+                            x: object.rotation.i,
+                            y: object.rotation.j,
+                            z: object.rotation.k,
+                            w: object.rotation.w,
+                        },
+                        velocity: Velocity {
+                            x: velocity.x,
+                            y: velocity.y,
+                            z: velocity.z,
+                        },
+                    };
+                    receiver.send_message(&update_msg).await;
                 }
             }
         }

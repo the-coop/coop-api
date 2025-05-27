@@ -90,6 +90,14 @@ impl PlayerManager {
         self.players.get_mut(&id)
     }
 
+    pub fn get_player(&self, id: Uuid) -> Option<dashmap::mapref::one::Ref<Uuid, Player>> {
+        self.players.get(&id)
+    }
+
+    pub fn iter(&self) -> dashmap::iter::Iter<Uuid, Player> {
+        self.players.iter()
+    }
+
     pub fn get_all_players_except(&self, exclude_id: Uuid) -> Vec<PlayerInfo> {
         self.players
             .iter()
