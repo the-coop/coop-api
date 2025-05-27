@@ -186,7 +186,7 @@ async fn handle_client_message(
                     let old_origin = player.world_origin.clone();
                     player.update_state(pos_clone, rot_clone, vel_clone);
                     let origin_updated = old_origin != player.world_origin;
-                    let world_pos = player.get_world_position();
+                    let world_pos = player.get_world_position(); // Now returns Vector3<f64>
                     
                     // Return the data we need
                     Some((world_pos, origin_updated))
@@ -200,13 +200,13 @@ async fn handle_client_message(
             if let Some((world_pos, origin_updated)) = update_result {
                 let state_read = state.read().await;
                 
-                // Broadcast to other players with world position
+                // Broadcast to other players with world position (convert f64 to f32 for network)
                 let update_msg = ServerMessage::PlayerState {
                     player_id: player_id.to_string(),
                     position: Position {
-                        x: world_pos.x,
-                        y: world_pos.y,
-                        z: world_pos.z,
+                        x: world_pos.x as f32,
+                        y: world_pos.y as f32,
+                        z: world_pos.z as f32,
                     },
                     rotation,
                     velocity,

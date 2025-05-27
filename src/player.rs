@@ -8,22 +8,22 @@ use uuid::Uuid;
 
 pub struct Player {
     pub id: Uuid,
-    pub position: Vector3<f32>,
+    pub position: Vector3<f32>,  // Local position relative to origin (stays f32)
     pub rotation: nalgebra::UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub sender: mpsc::UnboundedSender<Message>,
-    pub world_origin: Vector3<f32>, // Player's floating origin in world space
+    pub world_origin: Vector3<f64>, // Player's floating origin in world space (now f64)
 }
 
 impl Player {
     pub fn new(id: Uuid, position: Vector3<f32>, sender: mpsc::UnboundedSender<Message>) -> Self {
         Self {
             id,
-            position,
+            position: Vector3::zeros(), // Start at local origin
             rotation: nalgebra::UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             sender,
-            world_origin: position, // Initialize origin at spawn position
+            world_origin: Vector3::new(position.x as f64, position.y as f64, position.z as f64), // Convert spawn position to f64
         }
     }
 
@@ -38,13 +38,21 @@ impl Player {
         // Update floating origin if player moves too far from it
         let distance_from_origin = self.position.magnitude();
         if distance_from_origin > 1000.0 { // Recenter when 1km from origin
-            self.world_origin += self.position;
+            // Add current position to world origin with double precision
+            self.world_origin.x += self.position.x as f64;
+            self.world_origin.y += self.position.y as f64;
+            self.world_origin.z += self.position.z as f64;
             self.position = Vector3::zeros();
         }
     }
 
-    pub fn get_world_position(&self) -> Vector3<f32> {
-        self.world_origin + self.position
+    pub fn get_world_position(&self) -> Vector3<f64> {
+        // Return world position in double precision
+        Vector3::new(
+            self.world_origin.x + self.position.x as f64,
+            self.world_origin.y + self.position.y as f64,
+            self.world_origin.z + self.position.z as f64,
+        )
     }
 
     pub async fn send_message(&self, msg: &ServerMessage) {
@@ -92,9 +100,9 @@ impl PlayerManager {
                 PlayerInfo {
                     id: player.id.to_string(),
                     position: Position {
-                        x: world_pos.x,
-                        y: world_pos.y,
-                        z: world_pos.z,
+                        x: world_pos.x as f32,  // Convert back to f32 for client
+                        y: world_pos.y as f32,
+                        z: world_pos.z as f32,
                     },
                     rotation: Some(Rotation {
                         x: player.rotation.i,
@@ -108,11 +116,6 @@ impl PlayerManager {
     }
 
     pub async fn broadcast_except(&self, exclude_id: Uuid, msg: &ServerMessage) {
-        // Get the sender's world position for relative calculations
-        let _sender_world_pos = self.players.get(&exclude_id)
-            .map(|p| p.get_world_position())
-            .unwrap_or_else(Vector3::zeros);
-
         for entry in self.players.iter() {
             if *entry.key() != exclude_id {
                 let receiver = entry.value();
@@ -120,16 +123,16 @@ impl PlayerManager {
                 // Convert message positions to be relative to receiver's origin
                 let relative_msg = match msg {
                     ServerMessage::PlayerState { player_id, position, rotation, velocity } => {
-                        // Calculate position relative to receiver's origin
-                        let world_pos = Vector3::new(position.x, position.y, position.z);
+                        // Calculate position relative to receiver's origin (in double precision)
+                        let world_pos = Vector3::new(position.x as f64, position.y as f64, position.z as f64);
                         let relative_pos = world_pos - receiver.world_origin;
                         
                         ServerMessage::PlayerState {
                             player_id: player_id.clone(),
                             position: Position {
-                                x: relative_pos.x,
-                                y: relative_pos.y,
-                                z: relative_pos.z,
+                                x: relative_pos.x as f32,  // Convert back to f32
+                                y: relative_pos.y as f32,
+                                z: relative_pos.z as f32,
                             },
                             rotation: rotation.clone(),
                             velocity: velocity.clone(),
@@ -137,15 +140,15 @@ impl PlayerManager {
                     },
                     ServerMessage::PlayerJoined { player_id, position } => {
                         // Calculate position relative to receiver's origin
-                        let world_pos = Vector3::new(position.x, position.y, position.z);
+                        let world_pos = Vector3::new(position.x as f64, position.y as f64, position.z as f64);
                         let relative_pos = world_pos - receiver.world_origin;
                         
                         ServerMessage::PlayerJoined {
                             player_id: player_id.clone(),
                             position: Position {
-                                x: relative_pos.x,
-                                y: relative_pos.y,
-                                z: relative_pos.z,
+                                x: relative_pos.x as f32,
+                                y: relative_pos.y as f32,
+                                z: relative_pos.z as f32,
                             },
                         }
                     },
@@ -161,9 +164,9 @@ impl PlayerManager {
         if let Some(player) = self.players.get(&player_id) {
             let origin_msg = ServerMessage::OriginUpdate {
                 origin: Position {
-                    x: player.world_origin.x,
-                    y: player.world_origin.y,
-                    z: player.world_origin.z,
+                    x: player.world_origin.x as f32,  // Send as f32 to client
+                    y: player.world_origin.y as f32,
+                    z: player.world_origin.z as f32,
                 },
             };
             player.send_message(&origin_msg).await;
