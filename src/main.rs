@@ -172,26 +172,53 @@ async fn handle_client_message(
 ) {
     match msg {
         ClientMessage::PlayerUpdate { position, rotation, velocity } => {
-            let state_read = state.read().await;
-            
             // Clone the values to avoid move errors
             let pos_clone = position.clone();
             let rot_clone = rotation.clone();
             let vel_clone = velocity.clone();
             
-            // Update player state
-            if let Some(mut player) = state_read.players.get_player_mut(player_id) {
-                player.update_state(pos_clone, rot_clone, vel_clone);
+            // Update player state and get the data we need
+            let update_result = {
+                let state_read = state.read().await;
+                
+                let mut player_opt = state_read.players.get_player_mut(player_id);
+                if let Some(ref mut player) = player_opt {
+                    let old_origin = player.world_origin.clone();
+                    player.update_state(pos_clone, rot_clone, vel_clone);
+                    let origin_updated = old_origin != player.world_origin;
+                    let world_pos = player.get_world_position();
+                    
+                    // Return the data we need
+                    Some((world_pos, origin_updated))
+                } else {
+                    None
+                }
+                // player_opt is dropped here, releasing the mutable reference
+            }; // state_read is dropped here
+            
+            // Now we can do async operations without holding the lock
+            if let Some((world_pos, origin_updated)) = update_result {
+                let state_read = state.read().await;
+                
+                // Broadcast to other players with world position
+                let update_msg = ServerMessage::PlayerState {
+                    player_id: player_id.to_string(),
+                    position: Position {
+                        x: world_pos.x,
+                        y: world_pos.y,
+                        z: world_pos.z,
+                    },
+                    rotation,
+                    velocity,
+                };
+                
+                state_read.players.broadcast_except(player_id, &update_msg).await;
+                
+                // Send origin update to the player if it changed
+                if origin_updated {
+                    state_read.players.send_origin_update(player_id).await;
+                }
             }
-
-            // Broadcast to other players
-            let update_msg = ServerMessage::PlayerState {
-                player_id: player_id.to_string(),
-                position,
-                rotation,
-                velocity,
-            };
-            state_read.players.broadcast_except(player_id, &update_msg).await;
         }
         ClientMessage::PlayerAction { action, .. } => {
             // Handle other player actions if needed

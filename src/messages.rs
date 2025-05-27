@@ -63,6 +63,9 @@ pub enum ServerMessage {
     PlayersList {
         players: Vec<PlayerInfo>,
     },
+    OriginUpdate {
+        origin: Position,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
