@@ -1,4 +1,4 @@
-use nalgebra::Vector3;
+use nalgebra::{Vector3, UnitQuaternion, Isometry3};
 use rapier3d::prelude::*;
 
 pub struct PhysicsWorld {
@@ -125,4 +125,66 @@ impl PhysicsWorld {
         );
     }
     */
+
+    #[allow(dead_code)]
+    pub fn create_dynamic_body(
+        &mut self,
+        position: Vector3<f32>,
+        rotation: UnitQuaternion<f32>,
+    ) -> RigidBodyHandle {
+        let rigid_body = RigidBodyBuilder::dynamic()
+            .translation(position)
+            .rotation(rotation.scaled_axis()) // Convert quaternion to angle-axis representation
+            .linear_damping(0.4)
+            .angular_damping(0.4)
+            .build();
+
+        self.rigid_body_set.insert(rigid_body)
+    }
+
+    #[allow(dead_code)]
+    pub fn create_ball_collider(
+        &mut self,
+        body_handle: RigidBodyHandle,
+        radius: f32,
+        density: f32,
+    ) -> ColliderHandle {
+        let collider = ColliderBuilder::ball(radius)
+            .density(density)
+            .friction(0.8)
+            .restitution(0.4)
+            .build();
+
+        self.collider_set.insert_with_parent(
+            collider,
+            body_handle,
+            &mut self.rigid_body_set,
+        )
+    }
+
+    #[allow(dead_code)]
+    pub fn update_dynamic_body(
+        &mut self,
+        handle: RigidBodyHandle,
+        position: Vector3<f32>,
+        rotation: UnitQuaternion<f32>,
+        velocity: Vector3<f32>,
+    ) {
+        if let Some(body) = self.rigid_body_set.get_mut(handle) {
+            body.set_position(Isometry3::from_parts(position.into(), rotation), true);
+            body.set_linvel(velocity, true);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn get_body_state(&self, handle: RigidBodyHandle) -> Option<(Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> {
+        self.rigid_body_set.get(handle).map(|body| {
+            let pos = body.position();
+            (
+                pos.translation.vector.into(),
+                pos.rotation,
+                body.linvel().clone() // Clone to get owned Vector3
+            )
+        })
+    }
 }

@@ -253,43 +253,45 @@ async fn handle_client_message(
             }
         }
         ClientMessage::DynamicObjectUpdate { object_id, position, rotation, velocity } => {
-            // Update dynamic object state
-            {
+            // Update dynamic object state with local coordinates
+            let update_result = {
                 let state_read = state.read().await;
                 
-                // Convert position to world coordinates if needed
-                if let Some(player) = state_read.players.get_player(player_id) {
-                    let world_pos = Position {
-                        x: (player.world_origin.x + position.x as f64) as f32,
-                        y: (player.world_origin.y + position.y as f64) as f32,
-                        z: (player.world_origin.z + position.z as f64) as f32,
-                    };
-                    
-                    state_read.dynamic_objects.update_object(&object_id, world_pos, rotation.clone(), velocity.clone());
-                }
-            }
-            
-            // Broadcast to all players
-            let state_read = state.read().await;
-            for entry in state_read.players.iter() {
-                let receiver = entry.value();
+                // Update object with local coordinates (relative to its own origin)
+                state_read.dynamic_objects.update_object(&object_id, position.clone(), rotation.clone(), velocity.clone());
                 
-                if let Some(object) = state_read.dynamic_objects.get_object(&object_id) {
+                // Get the object's world position for broadcasting
+                let result = state_read.dynamic_objects.get_object(&object_id)
+                    .map(|object| {
+                        let world_pos = object.get_world_position();
+                        let origin = object.world_origin.clone();
+                        (world_pos, origin)
+                    });
+                
+                result
+            };
+            
+            // Broadcast to all players with position relative to each player's origin
+            if let Some((world_pos, _object_origin)) = update_result {
+                let state_read = state.read().await;
+                
+                for entry in state_read.players.iter() {
+                    let receiver = entry.value();
+                    
+                    // Calculate position relative to receiver's origin
+                    let relative_pos = world_pos - receiver.world_origin;
+                    
                     let update_msg = ServerMessage::DynamicObjectUpdate {
                         object_id: object_id.clone(),
-                        position: object.get_position_relative_to(&receiver.world_origin),
-                        rotation: Rotation {
-                            x: object.rotation.i,
-                            y: object.rotation.j,
-                            z: object.rotation.k,
-                            w: object.rotation.w,
+                        position: Position {
+                            x: relative_pos.x as f32,
+                            y: relative_pos.y as f32,
+                            z: relative_pos.z as f32,
                         },
-                        velocity: Velocity {
-                            x: velocity.x,
-                            y: velocity.y,
-                            z: velocity.z,
-                        },
+                        rotation: rotation.clone(),
+                        velocity: velocity.clone(),
                     };
+                    
                     receiver.send_message(&update_msg).await;
                 }
             }

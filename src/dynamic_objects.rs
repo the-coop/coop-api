@@ -7,36 +7,57 @@ use uuid::Uuid;
 pub struct DynamicObject {
     pub id: String,
     pub object_type: String,
-    pub position: Vector3<f64>,  // World position in double precision
+    pub position: Vector3<f32>,      // Local position relative to its origin
+    pub world_origin: Vector3<f64>,  // Object's floating origin in world space (double precision)
     pub rotation: UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub scale: f32,
-    pub owner_id: Option<Uuid>, // Player who has authority over this object
 }
 
 impl DynamicObject {
-    pub fn new(object_type: String, position: Vector3<f64>, scale: f32) -> Self {
+    pub fn new(object_type: String, world_position: Vector3<f64>, scale: f32) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             object_type,
-            position,
+            position: Vector3::zeros(), // Start at local origin
+            world_origin: world_position, // Set world origin to spawn position
             rotation: UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             scale,
-            owner_id: None,
         }
     }
 
     pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity) {
-        self.position = Vector3::new(pos.x as f64, pos.y as f64, pos.z as f64);
+        // Position is relative to object's origin
+        self.position = Vector3::new(pos.x, pos.y, pos.z);
         self.rotation = UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
             rot.w, rot.x, rot.y, rot.z,
         ));
         self.velocity = Vector3::new(vel.x, vel.y, vel.z);
+        
+        // Update floating origin if object moves too far from it
+        let distance_from_origin = self.position.magnitude();
+        if distance_from_origin > 1000.0 { // Recenter when 1km from origin
+            // Add current position to world origin with double precision
+            self.world_origin.x += self.position.x as f64;
+            self.world_origin.y += self.position.y as f64;
+            self.world_origin.z += self.position.z as f64;
+            self.position = Vector3::zeros();
+        }
     }
 
-    pub fn get_position_relative_to(&self, origin: &Vector3<f64>) -> Position {
-        let relative = self.position - origin;
+    pub fn get_world_position(&self) -> Vector3<f64> {
+        // Return world position in double precision
+        Vector3::new(
+            self.world_origin.x + self.position.x as f64,
+            self.world_origin.y + self.position.y as f64,
+            self.world_origin.z + self.position.z as f64,
+        )
+    }
+
+    pub fn get_position_relative_to(&self, player_origin: &Vector3<f64>) -> Position {
+        let world_pos = self.get_world_position();
+        let relative = world_pos - player_origin;
         Position {
             x: relative.x as f32,
             y: relative.y as f32,
@@ -85,6 +106,7 @@ impl DynamicObjectManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn remove_object(&self, id: &str) -> Option<DynamicObject> {
         self.objects.remove(id).map(|(_, obj)| obj)
     }
