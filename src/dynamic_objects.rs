@@ -3,6 +3,7 @@ use dashmap::DashMap;
 use nalgebra::{UnitQuaternion, Vector3};
 use rapier3d::prelude::*;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 pub struct DynamicObject {
@@ -15,6 +16,8 @@ pub struct DynamicObject {
     pub scale: f32,
     pub body_handle: Option<RigidBodyHandle>, // Physics body handle
     pub collider_handle: Option<ColliderHandle>, // Physics collider handle
+    pub owner_id: Option<Uuid>, // Current owner
+    pub ownership_expires: Option<Instant>, // When ownership expires
 }
 
 impl DynamicObject {
@@ -29,6 +32,8 @@ impl DynamicObject {
             scale,
             body_handle: None,
             collider_handle: None,
+            owner_id: None,
+            ownership_expires: None,
         }
     }
 
@@ -85,10 +90,23 @@ impl DynamicObject {
             scale: self.scale,
         }
     }
+
+    pub fn is_owned_by(&self, player_id: Uuid) -> bool {
+        if let (Some(owner), Some(expires)) = (self.owner_id, self.ownership_expires) {
+            owner == player_id && expires > Instant::now()
+        } else {
+            false
+        }
+    }
+
+    pub fn grant_ownership(&mut self, player_id: Uuid, duration: Duration) {
+        self.owner_id = Some(player_id);
+        self.ownership_expires = Some(Instant::now() + duration);
+    }
 }
 
 pub struct DynamicObjectManager {
-    objects: Arc<DashMap<String, DynamicObject>>,
+    pub objects: Arc<DashMap<String, DynamicObject>>,
 }
 
 impl DynamicObjectManager {
@@ -190,5 +208,48 @@ impl DynamicObjectManager {
 
     pub fn iter(&self) -> dashmap::iter::Iter<String, DynamicObject> {
         self.objects.iter()
+    }
+
+    pub fn grant_ownership(&self, object_id: &str, player_id: Uuid, duration: Duration) -> bool {
+        if let Some(mut obj) = self.objects.get_mut(object_id) {
+            obj.grant_ownership(player_id, duration);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn check_ownership(&self, object_id: &str, player_id: Uuid) -> bool {
+        if let Some(obj) = self.objects.get(object_id) {
+            obj.is_owned_by(player_id)
+        } else {
+            false
+        }
+    }
+
+    pub fn get_owner(&self, object_id: &str) -> Option<Uuid> {
+        self.objects.get(object_id).and_then(|obj| obj.owner_id)
+    }
+
+    pub fn update_ownership_expiry(&self) {
+        let mut expired_ids = Vec::new();
+        
+        // Collect IDs of objects with expired ownership
+        for entry in self.objects.iter() {
+            if let (Some(_owner_id), Some(expires)) = (entry.value().owner_id, entry.value().ownership_expires) {
+                if expires <= Instant::now() {
+                    expired_ids.push(entry.key().clone());
+                }
+            }
+        }
+        
+        // Update the expired objects
+        for id in expired_ids {
+            if let Some(mut entry) = self.objects.get_mut(&id) {
+                entry.value_mut().owner_id = None;
+                entry.value_mut().ownership_expires = None;
+                tracing::debug!("Ownership expired for object {}", id);
+            }
+        }
     }
 }

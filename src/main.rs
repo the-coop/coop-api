@@ -67,6 +67,9 @@ async fn main() {
             interval.tick().await;
             let mut state = physics_state.write().await;
             
+            // Check ownership expiry
+            state.dynamic_objects.update_ownership_expiry();
+            
             // Update moving platforms
             let elapsed = start_time.elapsed().as_secs_f32();
             state.physics.update_moving_platforms(elapsed);
@@ -412,6 +415,83 @@ async fn handle_client_message(
         ClientMessage::PlayerAction { action, .. } => {
             // Handle other player actions if needed
             info!("Player {} performed action: {}", player_id, action);
+        }
+        ClientMessage::PushObject { object_id, force, point } => {
+            // Handle object push
+            let force_vec = Vector3::new(force.x, force.y, force.z);
+            let point_vec = Vector3::new(point.x, point.y, point.z);
+            
+            // First, check existence and ownership without holding write lock
+            let (object_exists, should_grant_ownership) = {
+                let state_read = state.read().await;
+                let exists = state_read.dynamic_objects.iter()
+                    .any(|entry| entry.key() == &object_id);
+                
+                if !exists {
+                    (false, false)
+                } else {
+                    let has_ownership = state_read.dynamic_objects.check_ownership(&object_id, player_id);
+                    let current_owner = state_read.dynamic_objects.get_owner(&object_id);
+                    (true, !has_ownership && current_owner.is_none())
+                }
+            };
+            
+            if !object_exists {
+                return;
+            }
+            
+            // Grant ownership if needed
+            if should_grant_ownership {
+                let state_write = state.write().await;
+                state_write.dynamic_objects.grant_ownership(&object_id, player_id, Duration::from_secs(3));
+                
+                // Notify all players about ownership
+                let ownership_msg = ServerMessage::ObjectOwnershipGranted {
+                    object_id: object_id.clone(),
+                    player_id: player_id.to_string(),
+                    duration_ms: 3000,
+                };
+                state_write.players.broadcast_to_all(&ownership_msg).await;
+                
+                tracing::info!("Granted ownership of {} to player {}", object_id, player_id);
+            }
+            
+            // Apply the push force - extract the object data first
+            let object_data = {
+                let state_read = state.read().await;
+                state_read.dynamic_objects.objects.get(&object_id).map(|obj| {
+                    // Re-check ownership after granting
+                    if !obj.is_owned_by(player_id) {
+                        None
+                    } else {
+                        Some((obj.world_origin, obj.body_handle))
+                    }
+                }).flatten()
+            }; // state_read is dropped here, releasing the lock
+            
+            if let Some((world_origin, body_handle)) = object_data {
+                if let Some(handle) = body_handle {
+                    // Now apply the force with mutable access to physics only
+                    let mut state_write = state.write().await;
+                    if let Some(body) = state_write.physics.rigid_body_set.get_mut(handle) {
+                        // Apply impulse at contact point
+                        let world_point = nalgebra::Point3::new(
+                            world_origin.x as f32 + point_vec.x,
+                            world_origin.y as f32 + point_vec.y,
+                            world_origin.z as f32 + point_vec.z,
+                        );
+                        body.apply_impulse_at_point(force_vec, world_point, true);
+                        
+                        // Wake up the body
+                        body.wake_up(true);
+                        
+                        tracing::debug!("Applied push force to object {}: {:?}", object_id, force_vec);
+                    }
+                }
+            } else {
+                // Object not found or player doesn't have ownership
+                tracing::debug!("Player {} tried to push object {} without ownership", player_id, object_id);
+            }
         }
     }
 }

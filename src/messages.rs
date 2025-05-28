@@ -41,6 +41,11 @@ pub enum ClientMessage {
         rotation: Rotation,
         velocity: Velocity,
     },
+    PushObject {
+        object_id: String,
+        force: Velocity, // Reuse Velocity for force vector
+        point: Position, // Contact point relative to object
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -93,6 +98,14 @@ pub enum ServerMessage {
     },
     LevelData {
         objects: Vec<LevelObject>,
+    },
+    ObjectOwnershipGranted {
+        object_id: String,
+        player_id: String,
+        duration_ms: u32,
+    },
+    ObjectOwnershipRevoked {
+        object_id: String,
     },
 }
 
