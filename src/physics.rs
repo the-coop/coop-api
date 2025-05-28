@@ -165,38 +165,27 @@ impl PhysicsWorld {
     ) -> RigidBodyHandle {
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(position)
-            .rotation(rotation.scaled_axis()) // Convert quaternion to angle-axis representation
-            .linear_damping(0.4)
-            .angular_damping(0.4)
-            .ccd_enabled(false) // Disable CCD for better performance
-            .can_sleep(true)    // Allow sleeping for performance
+            .rotation(rotation.scaled_axis()) // Convert quaternion to axis-angle vector
+            .linear_damping(2.0)  // Increased from 0.4 for more realistic rolling
+            .angular_damping(1.0) // Increased from 0.4
+            .ccd_enabled(true)    // Enable continuous collision detection
             .build();
-
-        let handle = self.rigid_body_set.insert(rigid_body);
-        
-        // Log for debugging
-        tracing::debug!("Created dynamic body at {:?} with handle {:?}", position, handle);
-        
-        handle
+        self.rigid_body_set.insert(rigid_body)
     }
 
     pub fn create_ball_collider(
         &mut self,
-        body_handle: RigidBodyHandle,
+        parent: RigidBodyHandle,
         radius: f32,
         density: f32,
     ) -> ColliderHandle {
         let collider = ColliderBuilder::ball(radius)
-            .density(density)
+            .density(density * 0.3)  // Reduce density to make rocks lighter
             .friction(0.8)
-            .restitution(0.4)
+            .restitution(0.3)        // Slight bounce
+            .active_collision_types(ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_FIXED)
             .build();
-
-        self.collider_set.insert_with_parent(
-            collider,
-            body_handle,
-            &mut self.rigid_body_set,
-        )
+        self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
     }
 
     pub fn get_body_state(&self, handle: RigidBodyHandle) -> Option<(Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> {

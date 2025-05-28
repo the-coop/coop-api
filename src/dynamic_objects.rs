@@ -129,15 +129,15 @@ impl DynamicObjectManager {
         &self, 
         world_position: Vector3<f64>, 
         body_handle: RigidBodyHandle,
-        collider_handle: ColliderHandle
+        collider_handle: ColliderHandle,
+        scale: f32  // Add scale parameter
     ) -> String {
-        let scale = 0.8 + rand::random::<f32>() * 0.4; // Store the scale value
         let mut rock = DynamicObject::new("rock".to_string(), Vector3::zeros(), scale);
         rock.world_origin = world_position; // Set the world origin
         rock.position = Vector3::zeros(); // Local position starts at origin
         rock.body_handle = Some(body_handle);
         rock.collider_handle = Some(collider_handle);
-        rock.scale = scale; // Make sure scale is set
+        rock.scale = scale; // Use the provided scale
         let id = rock.id.clone();
         self.objects.insert(id.clone(), rock);
         id

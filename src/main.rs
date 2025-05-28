@@ -285,13 +285,14 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         let collider_handle = state_write.physics.create_ball_collider(body_handle, 2.0 * scale, 0.3);
         
         // Log the creation
-        info!("Created rock physics body at {:?} with handle {:?}", rock_physics_pos, body_handle);
+        info!("Created rock physics body at {:?} with handle {:?} and scale {}", rock_physics_pos, body_handle, scale);
         
         // Store rock with its actual world position
         let rock_id = state_write.dynamic_objects.spawn_rock_with_physics(
             rock_spawn_pos, // Use the actual spawn position as world origin
             body_handle, 
-            collider_handle
+            collider_handle,
+            scale // Pass the scale to the spawn method
         );
         
         // Broadcast rock spawn to all players
