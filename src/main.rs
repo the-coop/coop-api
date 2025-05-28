@@ -1,29 +1,28 @@
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::State,
-    response::IntoResponse,
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
+    response::Response,
     routing::get,
     Router,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use nalgebra::{Vector3, UnitQuaternion};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
-use tokio::{self, sync::mpsc, sync::RwLock};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock, Mutex};
 use tower_http::cors::CorsLayer;
-use tracing::{error, info};
 use uuid::Uuid;
 
+mod game_state;
 mod messages;
 mod physics;
 mod player;
-mod dynamic_objects;
-mod level;
 
-use messages::*;
-use physics::PhysicsWorld;
-use player::PlayerManager;
-use dynamic_objects::DynamicObjectManager;
-use level::Level;
+use game_state::GameState;
+use messages::{ClientMessage, ServerMessage, InternalMessage};
+use player::PlayerConnection;
 
 type SharedState = Arc<RwLock<AppState>>;
 
@@ -330,8 +329,20 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
-                if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) {
-                    handle_client_message(player_id, client_msg, &state).await;
+                match serde_json::from_str::<ClientMessage>(&text) {
+                    Ok(client_msg) => {
+                        if let Err(e) = handle_client_message(
+                            Arc::clone(&state),
+                            player_id,
+                            client_msg,
+                            server_tx.clone()
+                        ).await {
+                            eprintln!("Error handling client message: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to parse client message: {}", e);
+                    }
                 }
             }
             Ok(Message::Close(_)) => {
@@ -368,144 +379,79 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 }
 
 async fn handle_client_message(
+    game_state: Arc<GameState>,
     player_id: Uuid,
     msg: ClientMessage,
-    state: &SharedState,
-) {
+    server_tx: mpsc::UnboundedSender<InternalMessage>,
+) -> Result<(), Box<dyn std::error::Error>> {
     match msg {
-        ClientMessage::PlayerUpdate { position, rotation, velocity } => {
-            // Clone the values to avoid move errors
+        ClientMessage::PlayerUpdate { position, rotation, velocity, is_grounded } => {
+            // Clone values for the async block
             let pos_clone = position.clone();
             let rot_clone = rotation.clone();
             let vel_clone = velocity.clone();
             
-            // Update player state and get the data we need
-            let update_result = {
-                let state_read = state.read().await;
-                
-                let mut player_opt = state_read.players.get_player_mut(player_id);
-                if let Some(ref mut player) = player_opt {
-                    let old_origin = player.world_origin.clone();
-                    player.update_state(pos_clone, rot_clone, vel_clone);
-                    let origin_updated = old_origin != player.world_origin;
-                    let world_pos = player.get_world_position(); // Now returns Vector3<f64>
-                    
-                    // Return the data we need
-                    Some((world_pos, origin_updated))
-                } else {
-                    None
-                }
-            };
-            
-            // Now we can do async operations without holding the lock
-            if let Some((world_pos, origin_updated)) = update_result {
-                let state_read = state.read().await;
-                
-                // Broadcast to other players with world position (convert f64 to f32 for network)
-                let update_msg = ServerMessage::PlayerState {
-                    player_id: player_id.to_string(),
-                    position: Position {
-                        x: world_pos.x as f32,
-                        y: world_pos.y as f32,
-                        z: world_pos.z as f32,
-                    },
-                    rotation,
-                    velocity,
-                };
-                
-                state_read.players.broadcast_except(player_id, &update_msg).await;
-                
-                // Send origin update to the player if it changed
-                if origin_updated {
-                    state_read.players.send_origin_update(player_id).await;
+            // Update player state
+            {
+                let state_write = game_state.state.write().await;
+                if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+                    player.update_state(pos_clone, rot_clone, vel_clone, is_grounded);
                 }
             }
-        }
-        ClientMessage::DynamicObjectUpdate { object_id: _, position: _, rotation: _, velocity: _ } => {
-            // Client shouldn't send these anymore since server controls physics
-            // Ignore or log warning
-            tracing::warn!("Received dynamic object update from client - ignoring (server authoritative)");
-        }
-        ClientMessage::PlayerAction { action, .. } => {
-            // Handle other player actions if needed
-            info!("Player {} performed action: {}", player_id, action);
+            
+            // Broadcast player state to all other players
+            let update_msg = ServerMessage::PlayerState {
+                player_id: player_id.to_string(),
+                position,
+                rotation,
+                velocity,
+                is_grounded,
+            };
+            
+            server_tx.send(InternalMessage::Broadcast(update_msg))?;
         }
         ClientMessage::PushObject { object_id, force, point } => {
-            // Handle object push
-            let force_vec = Vector3::new(force.x, force.y, force.z);
-            let point_vec = Vector3::new(point.x, point.y, point.z);
-            
-            // First, check existence and ownership without holding write lock
-            let (object_exists, should_grant_ownership) = {
-                let state_read = state.read().await;
-                let exists = state_read.dynamic_objects.iter()
-                    .any(|entry| entry.key() == &object_id);
-                
-                if !exists {
-                    (false, false)
-                } else {
-                    let has_ownership = state_read.dynamic_objects.check_ownership(&object_id, player_id);
-                    let current_owner = state_read.dynamic_objects.get_owner(&object_id);
-                    (true, !has_ownership && current_owner.is_none())
-                }
+            // Check if player can push the object
+            let can_push = {
+                let state_read = game_state.state.read().await;
+                state_read.dynamic_objects.check_ownership(&object_id, &player_id)
             };
             
-            if !object_exists {
-                return;
-            }
-            
-            // Grant ownership if needed
-            if should_grant_ownership {
-                let state_write = state.write().await;
-                state_write.dynamic_objects.grant_ownership(&object_id, player_id, Duration::from_secs(3));
-                
-                // Notify all players about ownership
-                let ownership_msg = ServerMessage::ObjectOwnershipGranted {
-                    object_id: object_id.clone(),
-                    player_id: player_id.to_string(),
-                    duration_ms: 3000,
-                };
-                state_write.players.broadcast_to_all(&ownership_msg).await;
-                
-                tracing::info!("Granted ownership of {} to player {}", object_id, player_id);
-            }
-            
-            // Apply the push force - extract the object data first
-            let object_data = {
-                let state_read = state.read().await;
-                state_read.dynamic_objects.objects.get(&object_id).map(|obj| {
-                    // Re-check ownership after granting
-                    if !obj.is_owned_by(player_id) {
-                        None
-                    } else {
-                        Some((obj.world_origin, obj.body_handle))
-                    }
-                }).flatten()
-            }; // state_read is dropped here, releasing the lock
-            
-            if let Some((world_origin, body_handle)) = object_data {
-                if let Some(handle) = body_handle {
-                    // Now apply the force with mutable access to physics only
-                    let mut state_write = state.write().await;
-                    if let Some(body) = state_write.physics.rigid_body_set.get_mut(handle) {
-                        // Apply impulse at contact point
-                        let world_point = nalgebra::Point3::new(
-                            world_origin.x as f32 + point_vec.x,
-                            world_origin.y as f32 + point_vec.y,
-                            world_origin.z as f32 + point_vec.z,
-                        );
-                        body.apply_impulse_at_point(force_vec, world_point, true);
-                        
-                        // Wake up the body
-                        body.wake_up(true);
-                        
-                        tracing::debug!("Applied push force to object {}: {:?}", object_id, force_vec);
+            if can_push {
+                // Apply the push in physics
+                {
+                    let mut state_write = game_state.state.write().await;
+                    if let Some(object) = state_write.dynamic_objects.get_object_mut(&object_id) {
+                        object.push(force, point);
                     }
                 }
+                
+                // The next physics update will broadcast the new state
+                println!("Player {} pushed object {}", player_id, object_id);
             } else {
-                // Object not found or player doesn't have ownership
-                tracing::debug!("Player {} tried to push object {} without ownership", player_id, object_id);
+                // Try to request ownership
+                {
+                    let state_read = game_state.state.read().await;
+                    if state_read.dynamic_objects.has_object(&object_id) {
+                        drop(state_read);
+                        
+                        let mut state_write = game_state.state.write().await;
+                        if state_write.dynamic_objects.request_ownership(&object_id, &player_id) {
+                            println!("Player {} acquired ownership of object {}", player_id, object_id);
+                            
+                            // Notify player of ownership
+                            let ownership_msg = ServerMessage::ObjectOwnershipGranted {
+                                object_id: object_id.clone(),
+                                player_id: player_id.to_string(),
+                                duration_ms: 5000,
+                            };
+                            server_tx.send(InternalMessage::SendToPlayer(player_id, ownership_msg))?;
+                        }
+                    }
+                }
             }
         }
     }
+    
+    Ok(())
 }

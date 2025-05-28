@@ -13,6 +13,7 @@ pub struct Player {
     pub velocity: Vector3<f32>,
     pub sender: mpsc::UnboundedSender<Message>,
     pub world_origin: Vector3<f64>, // Player's floating origin in world space (now f64)
+    pub is_grounded: bool, // Add this field
 }
 
 impl Player {
@@ -24,16 +25,18 @@ impl Player {
             velocity: Vector3::zeros(),
             sender,
             world_origin: Vector3::new(0.0, 0.0, 0.0),
+            is_grounded: false,
         }
     }
 
-    pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity) {
+    pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity, is_grounded: bool) {
         // Position is relative to player's origin
         self.position = Vector3::new(pos.x, pos.y, pos.z);
         self.rotation = nalgebra::UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
             rot.w, rot.x, rot.y, rot.z,
         ));
         self.velocity = Vector3::new(vel.x, vel.y, vel.z);
+        self.is_grounded = is_grounded;
         
         // Update floating origin if player moves too far from it
         let distance_from_origin = self.position.magnitude();
@@ -144,6 +147,7 @@ impl PlayerManager {
                             },
                             rotation: rotation.clone(),
                             velocity: velocity.clone(),
+                            is_grounded: receiver.is_grounded, // Include is_grounded state
                         }
                     },
                     ServerMessage::PlayerJoined { player_id, position } => {
@@ -186,4 +190,44 @@ impl PlayerManager {
             entry.value().send_message(msg).await;
         }
     }
+}
+
+impl PlayerConnection {
+    // ...existing code...
+
+    async fn handle_server_message(&mut self, msg: ServerMessage) -> anyhow::Result<()> {
+        match &msg {
+            ServerMessage::PlayerJoined { player_id, position } => {
+                // ...existing code...
+            }
+            ServerMessage::PlayerLeft { player_id } => {
+                // ...existing code...
+            }
+            ServerMessage::PlayerState { player_id, position, rotation, velocity, is_grounded } => {
+                if player_id != &self.player_id.to_string() {
+                    self.send(ServerMessage::PlayerState {
+                        player_id: player_id.clone(),
+                        position: position.clone(),
+                        rotation: rotation.clone(),
+                        velocity: velocity.clone(),
+                        is_grounded: *is_grounded,
+                    }).await?;
+                }
+            }
+            ServerMessage::DynamicObjectSpawn { .. } |
+            ServerMessage::DynamicObjectUpdate { .. } |
+            ServerMessage::DynamicObjectRemove { .. } |
+            ServerMessage::ObjectOwnershipGranted { .. } |
+            ServerMessage::ObjectOwnershipRevoked { .. } |
+            ServerMessage::Welcome { .. } |
+            ServerMessage::PlayersList { .. } |
+            ServerMessage::DynamicObjectsList { .. } |
+            ServerMessage::LevelData { .. } => {
+                self.send(msg.clone()).await?;
+            }
+        }
+        Ok(())
+    }
+
+    // ...existing code...
 }

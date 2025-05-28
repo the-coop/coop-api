@@ -22,13 +22,15 @@ pub struct Velocity {
     pub z: f32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
     PlayerUpdate {
         position: Position,
         rotation: Rotation,
         velocity: Velocity,
+        #[serde(default)]
+        is_grounded: bool,
     },
     PlayerAction {
         action: String,
@@ -48,7 +50,7 @@ pub enum ClientMessage {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     Welcome {
@@ -70,6 +72,8 @@ pub enum ServerMessage {
         position: Position,
         rotation: Rotation,
         velocity: Velocity,
+        #[serde(default)]
+        is_grounded: bool,
     },
     PlayersList {
         players: Vec<PlayerInfo>,
