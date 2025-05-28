@@ -8,6 +8,7 @@ pub struct Level {
 }
 
 impl Level {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             objects: Vec::new(),

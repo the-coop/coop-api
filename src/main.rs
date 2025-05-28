@@ -175,8 +175,8 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
     let (sender, mut receiver) = socket.split();
 
     // Spawn position: platform is at y=30 with height 3, so top is at y=31.5
-    // Spawn player at y=33 to be 1.5 units above platform top
-    let spawn_position = nalgebra::Vector3::new(0.0, 33.0, 0.0);
+    // Spawn player at y=80 to be ~48.5 units above platform top (much higher spawn)
+    let spawn_position = nalgebra::Vector3::new(0.0, 80.0, 0.0);
 
     // Create a channel for the player
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -243,7 +243,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         // Spawn a rock for this player joining
         let rock_spawn_pos = nalgebra::Vector3::new(
             spawn_position.x as f64 + (-10.0 + rand::random::<f64>() * 20.0),
-            spawn_position.y as f64 + 20.0, // 20 units above spawn
+            spawn_position.y as f64 + 40.0, // 40 units above spawn (now at y=120)
             spawn_position.z as f64 + (-10.0 + rand::random::<f64>() * 20.0),
         );
         
