@@ -1,4 +1,4 @@
-use nalgebra::{Vector3, UnitQuaternion, Isometry3};
+use nalgebra::{Vector3, UnitQuaternion};
 use rapier3d::prelude::*;
 
 pub struct PhysicsWorld {
