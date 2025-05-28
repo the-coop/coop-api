@@ -199,19 +199,6 @@ impl PhysicsWorld {
         )
     }
 
-    pub fn update_dynamic_body(
-        &mut self,
-        handle: RigidBodyHandle,
-        position: Vector3<f32>,
-        rotation: UnitQuaternion<f32>,
-        velocity: Vector3<f32>,
-    ) {
-        if let Some(body) = self.rigid_body_set.get_mut(handle) {
-            body.set_position(Isometry3::from_parts(position.into(), rotation), true);
-            body.set_linvel(velocity, true);
-        }
-    }
-
     pub fn get_body_state(&self, handle: RigidBodyHandle) -> Option<(Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> {
         self.rigid_body_set.get(handle).map(|body| {
             let pos = body.position();

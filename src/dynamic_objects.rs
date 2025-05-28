@@ -52,24 +52,6 @@ impl DynamicObject {
         }
     }
 
-    pub fn update_from_physics(&mut self, position: Vector3<f32>, rotation: UnitQuaternion<f32>, velocity: Vector3<f32>) {
-        self.position = position;
-        self.rotation = rotation;
-        self.velocity = velocity;
-        
-        // Check if we need to update floating origin
-        let distance_from_origin = self.position.magnitude();
-        if distance_from_origin > 1000.0 {
-            self.world_origin.x += self.position.x as f64;
-            self.world_origin.y += self.position.y as f64;
-            self.world_origin.z += self.position.z as f64;
-            self.position = Vector3::zeros();
-            
-            // Return true to indicate origin changed and physics body needs repositioning
-            // For now, we'll handle this in the physics update loop
-        }
-    }
-
     pub fn get_world_position(&self) -> Vector3<f64> {
         // Return world position in double precision
         Vector3::new(
@@ -150,23 +132,6 @@ impl DynamicObjectManager {
         }
     }
 
-    pub fn update_from_physics(
-        &self, 
-        id: &str, 
-        position: Vector3<f32>, 
-        rotation: UnitQuaternion<f32>, 
-        velocity: Vector3<f32>
-    ) {
-        if let Some(mut object) = self.objects.get_mut(id) {
-            // Physics position is in world space
-            // Set world origin to physics position and reset local position to zero
-            object.world_origin = Vector3::new(position.x as f64, position.y as f64, position.z as f64);
-            object.position = Vector3::zeros();
-            object.rotation = rotation;
-            object.velocity = velocity;
-        }
-    }
-
     pub fn update_from_physics_world_position(
         &self,
         id: &str,
@@ -197,10 +162,6 @@ impl DynamicObjectManager {
             let collider = obj.collider_handle;
             (obj, body, collider)
         })
-    }
-
-    pub fn get_object(&self, id: &str) -> Option<dashmap::mapref::one::Ref<String, DynamicObject>> {
-        self.objects.get(id)
     }
 
     pub fn get_all_objects_relative_to(&self, origin: &Vector3<f64>) -> Vec<DynamicObjectInfo> {
