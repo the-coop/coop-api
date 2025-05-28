@@ -158,13 +158,13 @@ impl DynamicObjectManager {
         velocity: Vector3<f32>
     ) -> bool {
         if let Some(mut object) = self.objects.get_mut(id) {
-            // Set world origin to physics position and reset local position
+            // Directly set world origin to physics position
             object.world_origin = Vector3::new(
                 world_position.x as f64,
                 world_position.y as f64,
                 world_position.z as f64
             );
-            object.position = Vector3::zeros();
+            object.position = Vector3::zeros(); // Keep local position at zero
             object.rotation = rotation;
             object.velocity = velocity;
             true

@@ -138,6 +138,14 @@ pub struct LevelObject {
     pub rotation: Option<Rotation>,
     pub scale: Option<Vec3>,
     pub properties: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terrain_data: Option<TerrainData>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TerrainData {
+    pub vertices: Vec<f32>,  // Flattened vertex positions
+    pub indices: Vec<u32>,   // Triangle indices
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

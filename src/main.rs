@@ -118,8 +118,7 @@ async fn main() {
             
             // Apply updates
             for (id, pos, rot, vel) in updates {
-                // Physics position is in world space, not local space
-                // Update the object's world origin to match physics position
+                // Physics position is in world space
                 state.dynamic_objects.update_from_physics_world_position(&id, pos, rot, vel);
             }
             
@@ -133,12 +132,18 @@ async fn main() {
                     .filter_map(|entry| {
                         let obj = entry.value();
                         if obj.body_handle.is_some() {
-                            Some((
-                                obj.id.clone(),
-                                obj.get_world_position(),
-                                obj.rotation,
-                                obj.velocity
-                            ))
+                            // Get fresh physics state for broadcast
+                            if let Some(handle) = obj.body_handle {
+                                if let Some((pos, rot, vel)) = state.physics.get_body_state(handle) {
+                                    return Some((
+                                        obj.id.clone(),
+                                        Vector3::new(pos.x as f64, pos.y as f64, pos.z as f64), // Use physics position directly
+                                        rot,
+                                        vel
+                                    ));
+                                }
+                            }
+                            None
                         } else {
                             None
                         }

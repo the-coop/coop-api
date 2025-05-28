@@ -184,6 +184,8 @@ impl PhysicsWorld {
             .friction(1.2)           // Slightly higher friction
             .restitution(0.2)        // Lower restitution to reduce bouncing
             .active_collision_types(ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_FIXED)
+            .solver_groups(InteractionGroups::all()) // Ensure collision with all groups
+            .collision_groups(InteractionGroups::all()) // Ensure detection with all groups
             .build();
         self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
     }

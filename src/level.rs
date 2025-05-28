@@ -1,4 +1,4 @@
-use crate::messages::{LevelObject, Position, Rotation, Vec3};
+use crate::messages::{LevelObject, Position, Rotation, Vec3, TerrainData};
 use crate::physics::PhysicsWorld;
 use nalgebra::{Vector3, UnitQuaternion};
 use rapier3d::prelude::*;
@@ -18,13 +18,33 @@ impl Level {
     pub fn create_default_multiplayer_level() -> Self {
         let mut objects = Vec::new();
         
+        // Generate terrain data for planet
+        let planet_radius = 200.0;
+        let terrain_height = 30.0;
+        let subdivisions = 5;
+        let (vertices, indices) = generate_icosahedron_terrain(planet_radius, terrain_height, subdivisions);
+        
+        // Convert vertices to flattened array
+        let flattened_vertices: Vec<f32> = vertices.iter()
+            .flat_map(|v| vec![v.x, v.y, v.z])
+            .collect();
+        
+        // Flatten indices
+        let flattened_indices: Vec<u32> = indices.iter()
+            .flat_map(|tri| vec![tri[0], tri[1], tri[2]])
+            .collect();
+        
         // Planet at y = -250
         objects.push(LevelObject {
             object_type: "planet".to_string(),
             position: Position { x: 0.0, y: -250.0, z: 0.0 },
             rotation: None,
-            scale: Some(Vec3 { x: 200.0, y: 200.0, z: 200.0 }),
+            scale: Some(Vec3 { x: planet_radius, y: planet_radius, z: planet_radius }),
             properties: None,
+            terrain_data: Some(TerrainData {
+                vertices: flattened_vertices,
+                indices: flattened_indices,
+            }),
         });
         
         // Main platform at y = 30 (height 3, so top is at y = 31.5)
@@ -34,6 +54,7 @@ impl Level {
             rotation: None,
             scale: Some(Vec3 { x: 50.0, y: 3.0, z: 50.0 }),
             properties: None,
+            terrain_data: None,
         });
         
         // Add wall
@@ -43,6 +64,7 @@ impl Level {
             rotation: None,
             scale: Some(Vec3 { x: 20.0, y: 8.0, z: 1.0 }),
             properties: None,
+            terrain_data: None,
         });
         
         // Add ramp
@@ -58,6 +80,7 @@ impl Level {
             }),
             scale: Some(Vec3 { x: 10.0, y: 1.0, z: 15.0 }),
             properties: None,
+            terrain_data: None,
         });
         
         // Moving platform positioned at top of ramp
@@ -78,6 +101,7 @@ impl Level {
                 "move_range": 20.0,
                 "move_speed": 0.2
             })),
+            terrain_data: None,
         });
         
         // Add some initial rocks on the planet
@@ -107,6 +131,7 @@ impl Level {
                     z: 0.5 + rand::random::<f32>() * 1.5,
                 }),
                 properties: None,
+                terrain_data: None,
             });
         }
         
@@ -237,74 +262,115 @@ impl Level {
 }
 
 // Generate the same terrain mesh as the client
-fn generate_icosahedron_terrain(radius: f32, terrain_height: f32, _subdivisions: u32) -> (Vec<nalgebra::Point3<f32>>, Vec<[u32; 3]>) {
-    use std::f32::consts::PI;
+fn generate_icosahedron_terrain(radius: f32, terrain_height: f32, subdivisions: u32) -> (Vec<nalgebra::Point3<f32>>, Vec<[u32; 3]>) {
+    // Generate icosahedron vertices matching the client
+    let t = (1.0 + 5.0_f32.sqrt()) / 2.0;
     
-    // This is a simplified version - in production you'd want to match the client's exact algorithm
-    // For now, we'll create a sphere with some noise
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    // Initial icosahedron vertices (normalized)
+    let mut vertices = vec![
+        Vector3::new(-1.0,  t,  0.0).normalize() * radius,
+        Vector3::new( 1.0,  t,  0.0).normalize() * radius,
+        Vector3::new(-1.0, -t,  0.0).normalize() * radius,
+        Vector3::new( 1.0, -t,  0.0).normalize() * radius,
+        Vector3::new( 0.0, -1.0,  t).normalize() * radius,
+        Vector3::new( 0.0,  1.0,  t).normalize() * radius,
+        Vector3::new( 0.0, -1.0, -t).normalize() * radius,
+        Vector3::new( 0.0,  1.0, -t).normalize() * radius,
+        Vector3::new( t,  0.0, -1.0).normalize() * radius,
+        Vector3::new( t,  0.0,  1.0).normalize() * radius,
+        Vector3::new(-t,  0.0, -1.0).normalize() * radius,
+        Vector3::new(-t,  0.0,  1.0).normalize() * radius,
+    ];
     
-    // Create a sphere with terrain displacement
-    let resolution = 32; // Lower resolution for server performance
+    // Initial icosahedron faces
+    let mut faces = vec![
+        [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+        [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+        [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+        [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+    ];
     
-    for lat in 0..=resolution {
-        let theta = lat as f32 * PI / resolution as f32;
-        let sin_theta = theta.sin();
-        let cos_theta = theta.cos();
+    // Subdivide the icosahedron
+    for _ in 0..subdivisions {
+        let mut new_faces = Vec::new();
+        let mut edge_map = std::collections::HashMap::new();
         
-        for lon in 0..=resolution {
-            let phi = lon as f32 * 2.0 * PI / resolution as f32;
-            let sin_phi = phi.sin();
-            let cos_phi = phi.cos();
+        for face in &faces {
+            // Get midpoint indices
+            let m0 = get_or_create_midpoint(&mut vertices, &mut edge_map, face[0], face[1], radius);
+            let m1 = get_or_create_midpoint(&mut vertices, &mut edge_map, face[1], face[2], radius);
+            let m2 = get_or_create_midpoint(&mut vertices, &mut edge_map, face[2], face[0], radius);
             
-            let x = sin_theta * cos_phi;
-            let y = cos_theta;
-            let z = sin_theta * sin_phi;
-            
-            // Generate terrain height (simplified version of client algorithm)
-            let mut height = 0.0;
-            height += (theta * 1.5).sin() * (phi * 2.0).cos() * 0.3;
-            height += (theta * 1.2).cos() * (phi * 1.8).sin() * 0.25;
-            
-            let mountain_noise = (theta * 4.0).sin() * (phi * 3.0).cos();
-            if mountain_noise > 0.3 {
-                height += mountain_noise * 0.5;
-            }
-            
-            height += (theta * 8.0).sin() * (phi * 6.0).cos() * 0.15;
-            height += (theta * 10.0).cos() * (phi * 8.0).sin() * 0.1;
-            height += (theta * 20.0).sin() * (phi * 15.0).cos() * 0.05;
-            
-            if height.abs() < 0.1 {
-                height *= 0.3;
-            }
-            
-            height = (height + 1.0) * 0.5;
-            let final_radius = radius + (height * terrain_height) - terrain_height * 0.3;
-            
-            vertices.push(nalgebra::Point3::new(
-                x * final_radius,
-                y * final_radius,
-                z * final_radius,
-            ));
+            // Create 4 new faces
+            new_faces.push([face[0], m0, m2]);
+            new_faces.push([face[1], m1, m0]);
+            new_faces.push([face[2], m2, m1]);
+            new_faces.push([m0, m1, m2]);
         }
+        
+        faces = new_faces;
     }
     
-    // Generate indices for triangle mesh
-    for lat in 0..resolution {
-        for lon in 0..resolution {
-            let current = lat * (resolution + 1) + lon;
-            let next = current + 1;
-            let below = (lat + 1) * (resolution + 1) + lon;
-            let below_next = below + 1;
-            
-            // First triangle
-            indices.push([current, below, next]);
-            // Second triangle
-            indices.push([next, below, below_next]);
+    // Apply terrain displacement to match client
+    let mut final_vertices = Vec::new();
+    for vertex in &vertices {
+        let dir = vertex.normalize();
+        let theta = dir.x.atan2(dir.z);
+        let phi = (dir.y / radius).acos();
+        
+        // Generate terrain height using the same algorithm as client
+        let mut height = 0.0;
+        height += (theta * 1.5).sin() * (phi * 2.0).cos() * 0.3;
+        height += (theta * 1.2).cos() * (phi * 1.8).sin() * 0.25;
+        
+        let mountain_noise = (theta * 4.0).sin() * (phi * 3.0).cos();
+        if mountain_noise > 0.3 {
+            height += mountain_noise * 0.5;
         }
+        
+        height += (theta * 8.0).sin() * (phi * 6.0).cos() * 0.15;
+        height += (theta * 10.0).cos() * (phi * 8.0).sin() * 0.1;
+        height += (theta * 20.0).sin() * (phi * 15.0).cos() * 0.05;
+        
+        if height.abs() < 0.1 {
+            height *= 0.3;
+        }
+        
+        height = (height + 1.0) * 0.5;
+        let final_radius = radius + (height * terrain_height) - terrain_height * 0.3;
+        
+        let final_pos = dir * final_radius;
+        final_vertices.push(nalgebra::Point3::new(final_pos.x, final_pos.y, final_pos.z));
     }
     
-    (vertices, indices)
+    // Convert faces to u32 indices
+    let indices: Vec<[u32; 3]> = faces.into_iter()
+        .map(|f| [f[0] as u32, f[1] as u32, f[2] as u32])
+        .collect();
+    
+    (final_vertices, indices)
+}
+
+fn get_or_create_midpoint(
+    vertices: &mut Vec<Vector3<f32>>,
+    edge_map: &mut std::collections::HashMap<(u32, u32), u32>,
+    i0: u32,
+    i1: u32,
+    radius: f32,
+) -> u32 {
+    let key = if i0 < i1 { (i0, i1) } else { (i1, i0) };
+    
+    if let Some(&idx) = edge_map.get(&key) {
+        return idx;
+    }
+    
+    let v0 = vertices[i0 as usize];
+    let v1 = vertices[i1 as usize];
+    let midpoint = ((v0 + v1) / 2.0).normalize() * radius;
+    
+    let idx = vertices.len() as u32;
+    vertices.push(midpoint);
+    edge_map.insert(key, idx);
+    
+    idx
 }
