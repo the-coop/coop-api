@@ -227,28 +227,30 @@ impl DynamicObjectManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_owner(&self, object_id: &str) -> Option<Uuid> {
         self.objects.get(object_id).and_then(|obj| obj.owner_id)
     }
 
     pub fn update_ownership_expiry(&self) {
-        let mut expired_ids = Vec::new();
+        let now = std::time::Instant::now();
+        let mut expired_objects = Vec::new();
         
-        // Collect IDs of objects with expired ownership
+        // First pass: collect expired object IDs
         for entry in self.objects.iter() {
             if let (Some(_owner_id), Some(expires)) = (entry.value().owner_id, entry.value().ownership_expires) {
-                if expires <= Instant::now() {
-                    expired_ids.push(entry.key().clone());
+                if expires <= now {
+                    expired_objects.push(entry.key().clone());
                 }
             }
         }
         
-        // Update the expired objects
-        for id in expired_ids {
-            if let Some(mut entry) = self.objects.get_mut(&id) {
-                entry.value_mut().owner_id = None;
-                entry.value_mut().ownership_expires = None;
-                tracing::debug!("Ownership expired for object {}", id);
+        // Second pass: update the expired objects
+        for object_id in expired_objects {
+            if let Some(mut obj) = self.objects.get_mut(&object_id) {
+                obj.owner_id = None;
+                obj.ownership_expires = None;
+                tracing::debug!("Ownership expired for object {}", object_id);
             }
         }
     }

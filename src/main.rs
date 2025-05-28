@@ -3,35 +3,33 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
-    response::Response,
+    response::IntoResponse,
     routing::get,
     Router,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock, Mutex};
+use std::time::Duration;
+use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
+use nalgebra::{Vector3, UnitQuaternion};
+use tracing::{info, error, debug};
 
+mod dynamic_objects;
 mod game_state;
+mod level;
 mod messages;
 mod physics;
 mod player;
 
-use game_state::GameState;
-use messages::{ClientMessage, ServerMessage, InternalMessage};
-use player::PlayerConnection;
-
-type SharedState = Arc<RwLock<AppState>>;
-
-struct AppState {
-    players: PlayerManager,
-    physics: PhysicsWorld,
-    dynamic_objects: DynamicObjectManager,
-    level: Level,
-}
+use dynamic_objects::DynamicObjectManager;
+use game_state::AppState;
+use level::Level;
+use messages::{ClientMessage, ServerMessage, Position, Rotation, Velocity};
+use physics::PhysicsWorld;
+use player::PlayerManager;
 
 #[tokio::main]
 async fn main() {
@@ -93,13 +91,13 @@ async fn main() {
                         if let Some(body) = state.physics.rigid_body_set.get(handle) {
                             let pos = body.translation();
                             let world_pos = obj.get_world_position();
-                            tracing::debug!("Rock {} - physics: ({:.2}, {:.2}, {:.2}), world: ({:.2}, {:.2}, {:.2})", 
+                            debug!("Rock {} - physics: ({:.2}, {:.2}, {:.2}), world: ({:.2}, {:.2}, {:.2})", 
                                 id, pos.x, pos.y, pos.z, world_pos.x, world_pos.y, world_pos.z);
                         }
                     }
                 }
                 
-                tracing::debug!("Physics update: {} bodies ({} dynamic), gravity at {:?}", 
+                debug!("Physics update: {} bodies ({} dynamic), gravity at {:?}", 
                     body_count, dynamic_count, state.physics.gravity);
             }
             
@@ -193,12 +191,12 @@ async fn main() {
 
 async fn websocket_handler(
     ws: WebSocketUpgrade,
-    State(state): State<SharedState>,
+    State(state): State<Arc<RwLock<AppState>>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(socket: WebSocket, state: SharedState) {
+async fn handle_socket(socket: WebSocket, state: Arc<RwLock<AppState>>) {
     let player_id = Uuid::new_v4();
     let (sender, mut receiver) = socket.split();
 
@@ -217,7 +215,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
                 break; // Connection closed
             }
         }
-        sender.close().await
+        let _ = sender.close().await;
     });
 
     // Send player their ID and spawn position
@@ -335,7 +333,6 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
                             Arc::clone(&state),
                             player_id,
                             client_msg,
-                            server_tx.clone()
                         ).await {
                             eprintln!("Error handling client message: {}", e);
                         }
@@ -379,11 +376,10 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 }
 
 async fn handle_client_message(
-    game_state: Arc<GameState>,
+    state: Arc<RwLock<AppState>>,
     player_id: Uuid,
     msg: ClientMessage,
-    server_tx: mpsc::UnboundedSender<InternalMessage>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match msg {
         ClientMessage::PlayerUpdate { position, rotation, velocity, is_grounded } => {
             // Clone values for the async block
@@ -393,11 +389,11 @@ async fn handle_client_message(
             
             // Update player state
             {
-                let state_write = game_state.state.write().await;
-                if let Some(mut player) = state_write.players.get_player_mut(player_id) {
-                    player.update_state(pos_clone, rot_clone, vel_clone, is_grounded);
-                }
-            }
+                let state_write = state.write().await;
+                // Directly call update_state without storing the RefMut
+                state_write.players.get_player_mut(player_id)
+                    .map(|mut player| player.update_state(pos_clone, rot_clone, vel_clone, is_grounded));
+            } // state_write and any RefMut are dropped here
             
             // Broadcast player state to all other players
             let update_msg = ServerMessage::PlayerState {
@@ -408,48 +404,138 @@ async fn handle_client_message(
                 is_grounded,
             };
             
-            server_tx.send(InternalMessage::Broadcast(update_msg))?;
+            let state_read = state.read().await;
+            state_read.players.broadcast_except(player_id, &update_msg).await;
         }
         ClientMessage::PushObject { object_id, force, point } => {
-            // Check if player can push the object
-            let can_push = {
-                let state_read = game_state.state.read().await;
-                state_read.dynamic_objects.check_ownership(&object_id, &player_id)
+            // First check if object exists
+            let object_exists = {
+                let state_read = state.read().await;
+                state_read.dynamic_objects.objects.contains_key(&object_id)
             };
             
-            if can_push {
-                // Apply the push in physics
-                {
-                    let mut state_write = game_state.state.write().await;
-                    if let Some(object) = state_write.dynamic_objects.get_object_mut(&object_id) {
-                        object.push(force, point);
+            if !object_exists {
+                println!("Player {} tried to push non-existent object {}", player_id, object_id);
+                return Ok(());
+            }
+            
+            // Check if player already owns the object
+            let is_owner = {
+                let state_read = state.read().await;
+                state_read.dynamic_objects.check_ownership(&object_id, player_id)
+            };
+            
+            if is_owner {
+                // Player owns it, apply the push
+                let mut state_write = state.write().await;
+                
+                if let Some(body_handle) = state_write.dynamic_objects.objects.get(&object_id)
+                    .and_then(|obj| obj.body_handle) {
+                    
+                    if let Some(body) = state_write.physics.rigid_body_set.get_mut(body_handle) {
+                        let force_vec = Vector3::new(force.x, force.y, force.z);
+                        let point_vec = Vector3::new(point.x, point.y, point.z);
+                        
+                        // Check if this is likely a collision-based push (contact point is on surface)
+                        let is_collision_push = point_vec.magnitude() > 1.0; // Contact points from collisions are on rock surface
+                        
+                        let scaled_point = if is_collision_push {
+                            // For collision pushes, apply force more centrally
+                            point_vec * 0.2
+                        } else {
+                            // For targeted pushes (F key), allow more offset
+                            point_vec * 0.5
+                        };
+                        
+                        let world_point = body.position().transform_point(&nalgebra::Point3::from(scaled_point));
+                        
+                        // Scale force based on push type
+                        let force_multiplier = if is_collision_push {
+                            1.5 // Gentler for collisions
+                        } else {
+                            2.0 // Stronger for targeted pushes
+                        };
+                        
+                        body.apply_impulse_at_point(force_vec * force_multiplier, world_point, true);
+                        
+                        println!("Player {} pushed owned object {} with force {:?} (collision: {})", 
+                            player_id, object_id, force_vec.magnitude(), is_collision_push);
                     }
                 }
-                
-                // The next physics update will broadcast the new state
-                println!("Player {} pushed object {}", player_id, object_id);
             } else {
-                // Try to request ownership
-                {
-                    let state_read = game_state.state.read().await;
-                    if state_read.dynamic_objects.has_object(&object_id) {
-                        drop(state_read);
+                // Try to acquire ownership
+                let mut state_write = state.write().await;
+                
+                // Check if object is owned by someone else
+                let current_owner = state_write.dynamic_objects.objects.get(&object_id)
+                    .and_then(|obj| obj.owner_id);
+                
+                let can_take_ownership = match current_owner {
+                    None => true, // No owner
+                    Some(owner) if owner == player_id => true, // Already owns it
+                    Some(_) => {
+                        // Check if ownership expired
+                        state_write.dynamic_objects.objects.get(&object_id)
+                            .and_then(|obj| obj.ownership_expires)
+                            .map(|expires| expires <= std::time::Instant::now())
+                            .unwrap_or(true)
+                    }
+                };
+                
+                if can_take_ownership {
+                    // Grant ownership and apply push
+                    if state_write.dynamic_objects.grant_ownership(&object_id, player_id, Duration::from_millis(3000)) {
+                        println!("Player {} acquired ownership of object {}", player_id, object_id);
                         
-                        let mut state_write = game_state.state.write().await;
-                        if state_write.dynamic_objects.request_ownership(&object_id, &player_id) {
-                            println!("Player {} acquired ownership of object {}", player_id, object_id);
+                        // Apply the push immediately
+                        if let Some(body_handle) = state_write.dynamic_objects.objects.get(&object_id)
+                            .and_then(|obj| obj.body_handle) {
                             
-                            // Notify player of ownership
-                            let ownership_msg = ServerMessage::ObjectOwnershipGranted {
-                                object_id: object_id.clone(),
-                                player_id: player_id.to_string(),
-                                duration_ms: 5000,
-                            };
-                            server_tx.send(InternalMessage::SendToPlayer(player_id, ownership_msg))?;
+                            if let Some(body) = state_write.physics.rigid_body_set.get_mut(body_handle) {
+                                let force_vec = Vector3::new(force.x, force.y, force.z);
+                                let point_vec = Vector3::new(point.x, point.y, point.z);
+                                
+                                let is_collision_push = point_vec.magnitude() > 1.0;
+                                
+                                let scaled_point = if is_collision_push {
+                                    point_vec * 0.2
+                                } else {
+                                    point_vec * 0.5
+                                };
+                                
+                                let world_point = body.position().transform_point(&nalgebra::Point3::from(scaled_point));
+                                
+                                let force_multiplier = if is_collision_push {
+                                    1.5
+                                } else {
+                                    2.0
+                                };
+                                
+                                body.apply_impulse_at_point(force_vec * force_multiplier, world_point, true);
+                                
+                                println!("Player {} pushed newly owned object {} with force {:?}", 
+                                    player_id, object_id, force_vec.magnitude());
+                            }
+                        }
+                        
+                        // Notify player of ownership
+                        let ownership_msg = ServerMessage::ObjectOwnershipGranted {
+                            object_id: object_id.clone(),
+                            player_id: player_id.to_string(),
+                            duration_ms: 3000,
+                        };
+                        
+                        if let Some(player) = state_write.players.get_player(player_id) {
+                            player.send_message(&ownership_msg).await;
                         }
                     }
+                } else {
+                    println!("Player {} cannot push object {} - owned by another player", player_id, object_id);
                 }
             }
+        }
+        _ => {
+            // Handle other message types if needed
         }
     }
     

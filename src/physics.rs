@@ -166,8 +166,8 @@ impl PhysicsWorld {
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(position)
             .rotation(rotation.scaled_axis()) // Convert quaternion to axis-angle vector
-            .linear_damping(2.0)  // Increased from 0.4 for more realistic rolling
-            .angular_damping(1.0) // Increased from 0.4
+            .linear_damping(0.8)  // Increased damping for more stability
+            .angular_damping(3.0) // Higher angular damping to prevent wild spinning
             .ccd_enabled(true)    // Enable continuous collision detection
             .build();
         self.rigid_body_set.insert(rigid_body)
@@ -180,9 +180,9 @@ impl PhysicsWorld {
         density: f32,
     ) -> ColliderHandle {
         let collider = ColliderBuilder::ball(radius)
-            .density(density * 0.3)  // Reduce density to make rocks lighter
-            .friction(0.8)
-            .restitution(0.3)        // Slight bounce
+            .density(density * 0.5)  // Keep lighter weight
+            .friction(1.2)           // Slightly higher friction
+            .restitution(0.2)        // Lower restitution to reduce bouncing
             .active_collision_types(ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_FIXED)
             .build();
         self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
