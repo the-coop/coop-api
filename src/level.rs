@@ -15,10 +15,10 @@ impl Level {
     }
 
     pub fn create_default_multiplayer_level() -> Self {
-        let mut level = Self::new();
+        let mut objects = Vec::new();
         
-        // Add planet
-        level.objects.push(LevelObject {
+        // Planet at y = -250
+        objects.push(LevelObject {
             object_type: "planet".to_string(),
             position: Position { x: 0.0, y: -250.0, z: 0.0 },
             rotation: None,
@@ -26,8 +26,8 @@ impl Level {
             properties: None,
         });
         
-        // Add main platform
-        level.objects.push(LevelObject {
+        // Main platform at y = 30 (height 3, so top is at y = 31.5)
+        objects.push(LevelObject {
             object_type: "platform".to_string(),
             position: Position { x: 0.0, y: 30.0, z: 0.0 },
             rotation: None,
@@ -36,7 +36,7 @@ impl Level {
         });
         
         // Add wall
-        level.objects.push(LevelObject {
+        objects.push(LevelObject {
             object_type: "wall".to_string(),
             position: Position { x: 10.0, y: 30.0 + 1.5 + 4.0, z: -15.0 },
             rotation: None,
@@ -46,7 +46,7 @@ impl Level {
         
         // Add ramp
         let ramp_angle = std::f32::consts::PI / 6.0;
-        level.objects.push(LevelObject {
+        objects.push(LevelObject {
             object_type: "ramp".to_string(),
             position: Position { x: -15.0, y: 30.0 + 1.5 + 2.5, z: 10.0 },
             rotation: Some(Rotation {
@@ -59,12 +59,12 @@ impl Level {
             properties: None,
         });
         
-        // Add moving platform
-        let ramp_top_offset = (ramp_angle.sin() * 15.0 / 2.0);
-        let ramp_top_height = 30.0 + 1.5 + 2.5 + ramp_top_offset;
-        let ramp_top_z = 10.0 + (ramp_angle.cos() * 15.0 / 2.0);
+        // Moving platform positioned at top of ramp
+        let ramp_top_offset = ramp_angle.sin() * 15.0 / 2.0;
+        let ramp_top_height = 30.0 + 3.0/2.0 + 5.0/2.0 + ramp_top_offset;
+        let ramp_top_z = 10.0 + ramp_angle.cos() * 15.0 / 2.0;
         
-        level.objects.push(LevelObject {
+        objects.push(LevelObject {
             object_type: "moving_platform".to_string(),
             position: Position {
                 x: -15.0,
@@ -92,7 +92,7 @@ impl Level {
             let rock_pos = Vector3::new(x * radius, y * radius, z * radius);
             let rock_pos = rock_pos + Vector3::new(0.0, -250.0, 0.0);
             
-            level.objects.push(LevelObject {
+            objects.push(LevelObject {
                 object_type: "static_rock".to_string(),
                 position: Position {
                     x: rock_pos.x,
@@ -109,7 +109,7 @@ impl Level {
             });
         }
         
-        level
+        Self { objects }
     }
 
     pub fn build_physics(&self, physics: &mut PhysicsWorld) {
@@ -130,8 +130,16 @@ impl Level {
                 "static_rock" => {
                     self.build_static_rock_physics(physics, &obj);
                 }
-                _ => {}
+                _ => {
+                    tracing::warn!("Unknown object type in level: {}", obj.object_type);
+                }
             }
+        }
+        
+        // Set gravity center based on planet position
+        if let Some(planet) = self.objects.iter().find(|o| o.object_type == "planet") {
+            physics.gravity = Vector3::new(0.0, planet.position.y, 0.0);
+            tracing::info!("Set gravity center to planet at y={}", planet.position.y);
         }
     }
 
@@ -198,8 +206,10 @@ impl Level {
             physics.collider_set.insert_with_parent(collider, body, &mut physics.rigid_body_set);
         }
         
-        // Store the body handle for animation
+        // Store the body handle and properties for animation
         physics.moving_platforms.push((body, obj.position.x, obj.properties.clone()));
+        
+        tracing::info!("Created moving platform at x={} with body handle {:?}", obj.position.x, body);
     }
 
     fn build_static_rock_physics(&self, physics: &mut PhysicsWorld, obj: &LevelObject) {

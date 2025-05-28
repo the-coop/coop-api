@@ -32,6 +32,7 @@ impl DynamicObject {
         }
     }
 
+    #[allow(dead_code)]
     pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity) {
         // Position is relative to object's origin
         self.position = Vector3::new(pos.x, pos.y, pos.z);
@@ -115,6 +116,7 @@ impl DynamicObjectManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn spawn_rock(&self, world_position: Vector3<f64>) -> String {
         let scale = 0.8 + rand::random::<f32>() * 0.4; // 0.8 to 1.2
         let rock = DynamicObject::new("rock".to_string(), world_position, scale);
@@ -138,6 +140,7 @@ impl DynamicObjectManager {
         id
     }
 
+    #[allow(dead_code)]
     pub fn update_object(&self, id: &str, pos: Position, rot: Rotation, vel: Velocity) {
         if let Some(mut object) = self.objects.get_mut(id) {
             object.update_state(pos, rot, vel);
@@ -156,6 +159,7 @@ impl DynamicObjectManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn remove_object(&self, id: &str) -> Option<(DynamicObject, Option<RigidBodyHandle>, Option<ColliderHandle>)> {
         self.objects.remove(id).map(|(_, obj)| {
             let body = obj.body_handle;

@@ -18,7 +18,7 @@ pub struct PhysicsWorld {
 
 impl PhysicsWorld {
     pub fn new() -> Self {
-        let gravity = vector![0.0, -9.81, 0.0];
+        let gravity = vector![0.0, -250.0, 0.0]; // Default gravity center at planet position
         let integration_parameters = IntegrationParameters::default();
         let physics_pipeline = PhysicsPipeline::new();
         let island_manager = IslandManager::new();
@@ -47,8 +47,29 @@ impl PhysicsWorld {
     }
 
     pub fn step(&mut self) {
+        // Apply custom gravity to all dynamic bodies before stepping
+        let gravity_center = self.gravity;
+        let gravity_strength = 25.0;
+        
+        for (_, body) in self.rigid_body_set.iter_mut() {
+            if body.is_dynamic() {
+                let pos = body.translation();
+                let to_center = gravity_center - pos;
+                let distance = to_center.magnitude();
+                
+                if distance > 0.1 {
+                    let gravity_dir = to_center / distance;
+                    // Apply gravity force without scaling by mass (let physics engine handle mass)
+                    let gravity_force = gravity_dir * gravity_strength;
+                    body.add_force(gravity_force, true);
+                }
+            }
+        }
+        
+        // Use no global gravity since we apply custom gravity
+        let zero_gravity = vector![0.0, 0.0, 0.0];
         self.physics_pipeline.step(
-            &self.gravity,
+            &zero_gravity,
             &self.integration_parameters,
             &mut self.island_manager,
             &mut self.broad_phase,
@@ -187,6 +208,7 @@ impl PhysicsWorld {
         })
     }
 
+    #[allow(dead_code)]
     pub fn remove_dynamic_body(
         &mut self,
         body_handle: RigidBodyHandle,

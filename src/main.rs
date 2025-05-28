@@ -43,7 +43,11 @@ async fn main() {
     let mut physics = PhysicsWorld::new();
     
     // Build physics world from level
+    info!("Building physics world from level with {} objects", level.objects.len());
     level.build_physics(&mut physics);
+    info!("Physics world built with {} bodies and {} colliders", 
+        physics.rigid_body_set.len(), 
+        physics.collider_set.len());
 
     let state = Arc::new(RwLock::new(AppState {
         players: PlayerManager::new(),
@@ -170,8 +174,9 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
     let player_id = Uuid::new_v4();
     let (sender, mut receiver) = socket.split();
 
-    // Determine spawn position (could be randomized or based on game state)
-    let spawn_position = nalgebra::Vector3::new(0.0, 35.0, 0.0);
+    // Spawn position: platform is at y=30 with height 3, so top is at y=31.5
+    // Spawn player at y=33 to be 1.5 units above platform top
+    let spawn_position = nalgebra::Vector3::new(0.0, 33.0, 0.0);
 
     // Create a channel for the player
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -242,13 +247,22 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
             spawn_position.z as f64 + (-10.0 + rand::random::<f64>() * 20.0),
         );
         
-        // Create physics body for the rock
-        let rock_physics_pos = Vector3::new(0.0, 0.0, 0.0); // Start at origin relative to rock's world origin
+        // Create physics body for the rock at the actual world position
+        let rock_physics_pos = Vector3::new(
+            rock_spawn_pos.x as f32,
+            rock_spawn_pos.y as f32,
+            rock_spawn_pos.z as f32
+        );
         let body_handle = state_write.physics.create_dynamic_body(rock_physics_pos, UnitQuaternion::identity());
         let scale = 0.8 + rand::random::<f32>() * 0.4;
         let collider_handle = state_write.physics.create_ball_collider(body_handle, 2.0 * scale, 0.3);
         
-        let rock_id = state_write.dynamic_objects.spawn_rock_with_physics(rock_spawn_pos, body_handle, collider_handle);
+        // Store rock with its actual world position
+        let rock_id = state_write.dynamic_objects.spawn_rock_with_physics(
+            rock_spawn_pos, // Use the actual spawn position as world origin
+            body_handle, 
+            collider_handle
+        );
         
         // Broadcast rock spawn to all players
         for entry in state_write.players.iter() {
@@ -290,7 +304,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 
     // Clean up when player disconnects
     {
-        let mut state_write = state.write().await;
+        let state_write = state.write().await;
         state_write.players.remove_player(player_id);
         
         // Remove any dynamic objects owned by this player (if applicable)
@@ -337,8 +351,7 @@ async fn handle_client_message(
                 } else {
                     None
                 }
-                // player_opt is dropped here, releasing the mutable reference
-            }; // state_read is dropped here
+            };
             
             // Now we can do async operations without holding the lock
             if let Some((world_pos, origin_updated)) = update_result {
