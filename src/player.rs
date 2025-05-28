@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 pub struct Player {
-    pub id: Uuid,
+    pub id: Uuid, // Add this field
     pub position: Vector3<f32>,  // Local position relative to origin (stays f32)
     pub rotation: nalgebra::UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
@@ -18,12 +18,12 @@ pub struct Player {
 impl Player {
     pub fn new(id: Uuid, position: Vector3<f32>, sender: mpsc::UnboundedSender<Message>) -> Self {
         Self {
-            id,
-            position: Vector3::zeros(), // Start at local origin
+            id, // Add the id field here
+            position,
             rotation: nalgebra::UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             sender,
-            world_origin: Vector3::new(position.x as f64, position.y as f64, position.z as f64), // Convert spawn position to f64
+            world_origin: Vector3::new(0.0, 0.0, 0.0),
         }
     }
 

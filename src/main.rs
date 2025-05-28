@@ -61,6 +61,7 @@ async fn main() {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(16)); // 60 FPS
         let start_time = std::time::Instant::now();
+        let mut frame_count = 0u64;
         
         loop {
             interval.tick().await;
@@ -72,6 +73,32 @@ async fn main() {
             
             // Step physics
             state.physics.step();
+            
+            // Log every 60 frames (1 second)
+            frame_count += 1;
+            if frame_count % 60 == 0 {
+                let body_count = state.physics.rigid_body_set.len();
+                let dynamic_count = state.physics.rigid_body_set.iter()
+                    .filter(|(_, b)| b.is_dynamic())
+                    .count();
+                
+                // Log a sample dynamic body position
+                if let Some(entry) = state.dynamic_objects.iter().next() {
+                    let id = entry.key();
+                    let obj = entry.value();
+                    if let Some(handle) = obj.body_handle {
+                        if let Some(body) = state.physics.rigid_body_set.get(handle) {
+                            let pos = body.translation();
+                            let world_pos = obj.get_world_position();
+                            tracing::debug!("Rock {} - physics: ({:.2}, {:.2}, {:.2}), world: ({:.2}, {:.2}, {:.2})", 
+                                id, pos.x, pos.y, pos.z, world_pos.x, world_pos.y, world_pos.z);
+                        }
+                    }
+                }
+                
+                tracing::debug!("Physics update: {} bodies ({} dynamic), gravity at {:?}", 
+                    body_count, dynamic_count, state.physics.gravity);
+            }
             
             // Update dynamic objects from physics
             let updates: Vec<(String, Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> = state.dynamic_objects
@@ -90,23 +117,9 @@ async fn main() {
             
             // Apply updates
             for (id, pos, rot, vel) in updates {
-                state.dynamic_objects.update_from_physics(&id, pos, rot, vel);
-                
-                // Check if object needs physics body repositioning due to origin change
-                // Extract the data we need first to avoid borrow conflicts
-                let needs_reposition = state.dynamic_objects.get_object(&id)
-                    .and_then(|obj| {
-                        if obj.position.magnitude() < 0.1 && obj.body_handle.is_some() {
-                            Some((obj.body_handle, obj.rotation.clone(), obj.velocity.clone()))
-                        } else {
-                            None
-                        }
-                    });
-                
-                // Now update the physics body if needed
-                if let Some((Some(handle), rotation, velocity)) = needs_reposition {
-                    state.physics.update_dynamic_body(handle, Vector3::zeros(), rotation, velocity);
-                }
+                // Physics position is in world space, not local space
+                // Update the object's world origin to match physics position
+                state.dynamic_objects.update_from_physics_world_position(&id, pos, rot, vel);
             }
             
             // Broadcast dynamic object updates to all players
@@ -243,9 +256,12 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         // Spawn a rock for this player joining
         let rock_spawn_pos = nalgebra::Vector3::new(
             spawn_position.x as f64 + (-10.0 + rand::random::<f64>() * 20.0),
-            spawn_position.y as f64 + 40.0, // 40 units above spawn (now at y=120)
+            spawn_position.y as f64 + 20.0, // Spawn 20 units above player spawn (at y=100)
             spawn_position.z as f64 + (-10.0 + rand::random::<f64>() * 20.0),
         );
+        
+        info!("Spawning rock at world position: ({:.2}, {:.2}, {:.2})", 
+            rock_spawn_pos.x, rock_spawn_pos.y, rock_spawn_pos.z);
         
         // Create physics body for the rock at the actual world position
         let rock_physics_pos = Vector3::new(
@@ -253,9 +269,20 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
             rock_spawn_pos.y as f32,
             rock_spawn_pos.z as f32
         );
-        let body_handle = state_write.physics.create_dynamic_body(rock_physics_pos, UnitQuaternion::identity());
+        
+        // Create rotation with some randomness
+        let rotation = UnitQuaternion::from_euler_angles(
+            rand::random::<f32>() * std::f32::consts::PI * 2.0,
+            rand::random::<f32>() * std::f32::consts::PI * 2.0,
+            rand::random::<f32>() * std::f32::consts::PI * 2.0
+        );
+        
+        let body_handle = state_write.physics.create_dynamic_body(rock_physics_pos, rotation);
         let scale = 0.8 + rand::random::<f32>() * 0.4;
         let collider_handle = state_write.physics.create_ball_collider(body_handle, 2.0 * scale, 0.3);
+        
+        // Log the creation
+        info!("Created rock physics body at {:?} with handle {:?}", rock_physics_pos, body_handle);
         
         // Store rock with its actual world position
         let rock_id = state_write.dynamic_objects.spawn_rock_with_physics(

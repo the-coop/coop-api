@@ -131,10 +131,13 @@ impl DynamicObjectManager {
         body_handle: RigidBodyHandle,
         collider_handle: ColliderHandle
     ) -> String {
-        let scale = 0.8 + rand::random::<f32>() * 0.4; // 0.8 to 1.2
-        let mut rock = DynamicObject::new("rock".to_string(), world_position, scale);
+        let scale = 0.8 + rand::random::<f32>() * 0.4; // Store the scale value
+        let mut rock = DynamicObject::new("rock".to_string(), Vector3::zeros(), scale);
+        rock.world_origin = world_position; // Set the world origin
+        rock.position = Vector3::zeros(); // Local position starts at origin
         rock.body_handle = Some(body_handle);
         rock.collider_handle = Some(collider_handle);
+        rock.scale = scale; // Make sure scale is set
         let id = rock.id.clone();
         self.objects.insert(id.clone(), rock);
         id
@@ -155,7 +158,35 @@ impl DynamicObjectManager {
         velocity: Vector3<f32>
     ) {
         if let Some(mut object) = self.objects.get_mut(id) {
-            object.update_from_physics(position, rotation, velocity);
+            // Physics position is in world space
+            // Set world origin to physics position and reset local position to zero
+            object.world_origin = Vector3::new(position.x as f64, position.y as f64, position.z as f64);
+            object.position = Vector3::zeros();
+            object.rotation = rotation;
+            object.velocity = velocity;
+        }
+    }
+
+    pub fn update_from_physics_world_position(
+        &self,
+        id: &str,
+        world_position: Vector3<f32>,
+        rotation: UnitQuaternion<f32>,
+        velocity: Vector3<f32>
+    ) -> bool {
+        if let Some(mut object) = self.objects.get_mut(id) {
+            // Set world origin to physics position and reset local position
+            object.world_origin = Vector3::new(
+                world_position.x as f64,
+                world_position.y as f64,
+                world_position.z as f64
+            );
+            object.position = Vector3::zeros();
+            object.rotation = rotation;
+            object.velocity = velocity;
+            true
+        } else {
+            false
         }
     }
 

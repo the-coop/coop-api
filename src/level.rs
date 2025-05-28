@@ -51,10 +51,10 @@ impl Level {
             object_type: "ramp".to_string(),
             position: Position { x: -15.0, y: 30.0 + 1.5 + 2.5, z: 10.0 },
             rotation: Some(Rotation {
-                x: ramp_angle.sin() / 2.0,
+                x: -(ramp_angle / 2.0).sin(), // Negative for correct rotation
                 y: 0.0,
                 z: 0.0,
-                w: ramp_angle.cos() / 2.0,
+                w: (ramp_angle / 2.0).cos(),
             }),
             scale: Some(Vec3 { x: 10.0, y: 1.0, z: 15.0 }),
             properties: None,
@@ -148,10 +148,17 @@ impl Level {
         let pos = Vector3::new(obj.position.x, obj.position.y, obj.position.z);
         let body = physics.create_fixed_body(pos);
         
-        // Create a sphere collider as approximation
+        // Create the same terrain as the client for accurate collision
         if let Some(scale) = &obj.scale {
-            let radius = scale.x; // Assuming uniform scale for planet
-            let collider = ColliderBuilder::ball(radius)
+            let planet_radius = scale.x;
+            let terrain_height = 30.0;
+            
+            // Generate icosahedron vertices
+            let subdivisions = 5;
+            let (vertices, indices) = generate_icosahedron_terrain(planet_radius, terrain_height, subdivisions);
+            
+            // Create trimesh collider for accurate terrain collision
+            let collider = ColliderBuilder::trimesh(vertices, indices)
                 .friction(0.8)
                 .restitution(0.1)
                 .build();
@@ -220,11 +227,84 @@ impl Level {
         if let Some(scale) = &obj.scale {
             // Use average scale for sphere radius
             let radius = (scale.x + scale.y + scale.z) / 3.0;
-            let collider = ColliderBuilder::ball(radius * 2.0) // Diameter to radius
+            let collider = ColliderBuilder::ball(radius) // This should be just radius, not diameter
                 .friction(0.8)
                 .restitution(0.4)
                 .build();
             physics.collider_set.insert_with_parent(collider, body, &mut physics.rigid_body_set);
         }
     }
+}
+
+// Generate the same terrain mesh as the client
+fn generate_icosahedron_terrain(radius: f32, terrain_height: f32, _subdivisions: u32) -> (Vec<nalgebra::Point3<f32>>, Vec<[u32; 3]>) {
+    use std::f32::consts::PI;
+    
+    // This is a simplified version - in production you'd want to match the client's exact algorithm
+    // For now, we'll create a sphere with some noise
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    
+    // Create a sphere with terrain displacement
+    let resolution = 32; // Lower resolution for server performance
+    
+    for lat in 0..=resolution {
+        let theta = lat as f32 * PI / resolution as f32;
+        let sin_theta = theta.sin();
+        let cos_theta = theta.cos();
+        
+        for lon in 0..=resolution {
+            let phi = lon as f32 * 2.0 * PI / resolution as f32;
+            let sin_phi = phi.sin();
+            let cos_phi = phi.cos();
+            
+            let x = sin_theta * cos_phi;
+            let y = cos_theta;
+            let z = sin_theta * sin_phi;
+            
+            // Generate terrain height (simplified version of client algorithm)
+            let mut height = 0.0;
+            height += (theta * 1.5).sin() * (phi * 2.0).cos() * 0.3;
+            height += (theta * 1.2).cos() * (phi * 1.8).sin() * 0.25;
+            
+            let mountain_noise = (theta * 4.0).sin() * (phi * 3.0).cos();
+            if mountain_noise > 0.3 {
+                height += mountain_noise * 0.5;
+            }
+            
+            height += (theta * 8.0).sin() * (phi * 6.0).cos() * 0.15;
+            height += (theta * 10.0).cos() * (phi * 8.0).sin() * 0.1;
+            height += (theta * 20.0).sin() * (phi * 15.0).cos() * 0.05;
+            
+            if height.abs() < 0.1 {
+                height *= 0.3;
+            }
+            
+            height = (height + 1.0) * 0.5;
+            let final_radius = radius + (height * terrain_height) - terrain_height * 0.3;
+            
+            vertices.push(nalgebra::Point3::new(
+                x * final_radius,
+                y * final_radius,
+                z * final_radius,
+            ));
+        }
+    }
+    
+    // Generate indices for triangle mesh
+    for lat in 0..resolution {
+        for lon in 0..resolution {
+            let current = lat * (resolution + 1) + lon;
+            let next = current + 1;
+            let below = (lat + 1) * (resolution + 1) + lon;
+            let below_next = below + 1;
+            
+            // First triangle
+            indices.push([current, below, next]);
+            // Second triangle
+            indices.push([next, below, below_next]);
+        }
+    }
+    
+    (vertices, indices)
 }

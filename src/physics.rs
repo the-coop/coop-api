@@ -51,7 +51,7 @@ impl PhysicsWorld {
         let gravity_center = self.gravity;
         let gravity_strength = 25.0;
         
-        for (_, body) in self.rigid_body_set.iter_mut() {
+        for (_handle, body) in self.rigid_body_set.iter_mut() {
             if body.is_dynamic() {
                 let pos = body.translation();
                 let to_center = gravity_center - pos;
@@ -59,9 +59,17 @@ impl PhysicsWorld {
                 
                 if distance > 0.1 {
                     let gravity_dir = to_center / distance;
-                    // Apply gravity force without scaling by mass (let physics engine handle mass)
-                    let gravity_force = gravity_dir * gravity_strength;
+                    // Reset forces before applying to prevent accumulation
+                    body.reset_forces(true);
+                    // Apply gravity force scaled by mass
+                    let mass = body.mass();
+                    let gravity_force = gravity_dir * gravity_strength * mass;
                     body.add_force(gravity_force, true);
+                    
+                    // Add damping for more realistic falling
+                    let velocity = body.linvel();
+                    let damping_force = -velocity * 0.1; // Small damping
+                    body.add_force(damping_force, true);
                 }
             }
         }
@@ -160,9 +168,16 @@ impl PhysicsWorld {
             .rotation(rotation.scaled_axis()) // Convert quaternion to angle-axis representation
             .linear_damping(0.4)
             .angular_damping(0.4)
+            .ccd_enabled(false) // Disable CCD for better performance
+            .can_sleep(true)    // Allow sleeping for performance
             .build();
 
-        self.rigid_body_set.insert(rigid_body)
+        let handle = self.rigid_body_set.insert(rigid_body);
+        
+        // Log for debugging
+        tracing::debug!("Created dynamic body at {:?} with handle {:?}", position, handle);
+        
+        handle
     }
 
     pub fn create_ball_collider(
