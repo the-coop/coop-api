@@ -62,6 +62,7 @@ async fn main() {
         let mut interval = tokio::time::interval(Duration::from_millis(16)); // 60 FPS
         let start_time = std::time::Instant::now();
         let mut frame_count = 0u64;
+        let mut last_broadcast_time = std::time::Instant::now();
         
         loop {
             interval.tick().await;
@@ -125,43 +126,55 @@ async fn main() {
                 state.dynamic_objects.update_from_physics_world_position(&id, pos, rot, vel);
             }
             
-            // Broadcast dynamic object updates to all players
-            let object_updates: Vec<(String, Vector3<f64>, UnitQuaternion<f32>, Vector3<f32>)> = 
-                state.dynamic_objects.iter()
-                    .map(|entry| {
+            // Broadcast dynamic object updates more frequently (every 2 frames = 30Hz)
+            let now = std::time::Instant::now();
+            if now.duration_since(last_broadcast_time) >= Duration::from_millis(33) { // ~30Hz
+                last_broadcast_time = now;
+                
+                let object_updates: Vec<(String, Vector3<f64>, UnitQuaternion<f32>, Vector3<f32>)> = 
+                    state.dynamic_objects.iter()
+                    .filter_map(|entry| {
                         let obj = entry.value();
-                        (obj.id.clone(), obj.get_world_position(), obj.rotation, obj.velocity)
+                        if obj.body_handle.is_some() {
+                            Some((
+                                obj.id.clone(),
+                                obj.get_world_position(),
+                                obj.rotation,
+                                obj.velocity
+                            ))
+                        } else {
+                            None
+                        }
                     })
                     .collect();
-            
-            for (object_id, world_pos, rotation, velocity) in object_updates {
-                for player_entry in state.players.iter() {
-                    let receiver = player_entry.value();
-                    
-                    // Calculate position relative to receiver's origin
-                    let relative_pos = world_pos - receiver.world_origin;
-                    
-                    let update_msg = ServerMessage::DynamicObjectUpdate {
-                        object_id: object_id.clone(),
-                        position: Position {
-                            x: relative_pos.x as f32,
-                            y: relative_pos.y as f32,
-                            z: relative_pos.z as f32,
-                        },
-                        rotation: Rotation {
-                            x: rotation.i,
-                            y: rotation.j,
-                            z: rotation.k,
-                            w: rotation.w,
-                        },
-                        velocity: Velocity {
-                            x: velocity.x,
-                            y: velocity.y,
-                            z: velocity.z,
-                        },
-                    };
-                    
-                    receiver.send_message(&update_msg).await;
+                
+                for (object_id, world_pos, rotation, velocity) in object_updates {
+                    for player_entry in state.players.iter() {
+                        let receiver = player_entry.value();
+                        let relative_pos = world_pos - receiver.world_origin;
+                        
+                        let update_msg = ServerMessage::DynamicObjectUpdate {
+                            object_id: object_id.clone(),
+                            position: Position {
+                                x: relative_pos.x as f32,
+                                y: relative_pos.y as f32,
+                                z: relative_pos.z as f32,
+                            },
+                            rotation: Rotation {
+                                x: rotation.i,
+                                y: rotation.j,
+                                z: rotation.k,
+                                w: rotation.w,
+                            },
+                            velocity: Velocity {
+                                x: velocity.x,
+                                y: velocity.y,
+                                z: velocity.z,
+                            },
+                        };
+                        
+                        receiver.send_message(&update_msg).await;
+                    }
                 }
             }
         }
