@@ -282,10 +282,22 @@ async fn handle_socket(socket: WebSocket, state: Arc<RwLock<AppState>>) {
         return;
     }
 
-    // Add player to game
+    // Add player to game with physics
     {
         let mut state_write = state.write().await;
+        
+        // Create physics body for player
+        let body_handle = state_write.physics.create_player_body(spawn_position);
+        let collider_handle = state_write.physics.create_player_collider(body_handle);
+        
+        // Add player with physics handles
         state_write.players.add_player(player_id, spawn_position, tx.clone());
+        
+        // Update player with physics handles
+        if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+            player.body_handle = Some(body_handle);
+            player.collider_handle = Some(collider_handle);
+        }
 
         // Send level data to new player (only in multiplayer)
         let level_msg = ServerMessage::LevelData {
@@ -404,7 +416,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<RwLock<AppState>>) {
 
     // Clean up when player disconnects
     {
-        let state_write = state.write().await;
+        let mut state_write = state.write().await;
+        
+        // Extract physics handles before removing player
+        let (body_handle, collider_handle) = if let Some(player) = state_write.players.get_player(player_id) {
+            (player.body_handle, player.collider_handle)
+        } else {
+            (None, None)
+        };
+        
+        // Now remove physics body if exists
+        if let (Some(body_handle), Some(_collider_handle)) = (body_handle, collider_handle) {
+            // Get mutable references to all physics components we need
+            let physics = &mut state_write.physics;
+            physics.rigid_body_set.remove(
+                body_handle,
+                &mut physics.island_manager,
+                &mut physics.collider_set,
+                &mut physics.impulse_joint_set,
+                &mut physics.multibody_joint_set,
+                true,
+            );
+        }
+        
         state_write.players.remove_player(player_id);
         
         // Remove any dynamic objects owned by this player (if applicable)
@@ -435,13 +469,50 @@ async fn handle_client_message(
             let rot_clone = rotation.clone();
             let vel_clone = velocity.clone();
             
-            // Update player state
+            // Update player state and physics body
             {
-                let state_write = state.write().await;
-                // Directly call update_state without storing the RefMut
-                state_write.players.get_player_mut(player_id)
-                    .map(|mut player| player.update_state(pos_clone, rot_clone, vel_clone, is_grounded));
-            } // state_write and any RefMut are dropped here
+                let mut state_write = state.write().await;
+                
+                // First, extract all needed data from player
+                let (body_handle, world_pos, player_rotation, player_velocity) = 
+                    if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+                        player.update_state(pos_clone, rot_clone, vel_clone, is_grounded);
+                        
+                        // Extract all needed data
+                        let data = (
+                            player.body_handle,
+                            player.get_world_position(),
+                            player.rotation,
+                            player.velocity
+                        );
+                        
+                        // Explicitly drop the player borrow
+                        drop(player);
+                        
+                        data
+                    } else {
+                        // Player not found, return early
+                        return Ok(());
+                    };
+                
+                // Now update physics body if we have a handle
+                if let Some(body_handle) = body_handle {
+                    if let Some(body) = state_write.physics.rigid_body_set.get_mut(body_handle) {
+                        // Set position
+                        body.set_translation(Vector3::new(
+                            world_pos.x as f32,
+                            world_pos.y as f32,
+                            world_pos.z as f32
+                        ), true);
+                        
+                        // Set rotation - important for proper physics simulation
+                        body.set_rotation(player_rotation, true);
+                        
+                        // Set velocity for proper interpolation
+                        body.set_linvel(player_velocity, true);
+                    }
+                }
+            }
             
             // Broadcast player state to all other players
             let update_msg = ServerMessage::PlayerState {
@@ -455,6 +526,7 @@ async fn handle_client_message(
             let state_read = state.read().await;
             state_read.players.broadcast_except(player_id, &update_msg).await;
         }
+        
         ClientMessage::PushObject { object_id, force, point } => {
             // First check if object exists
             let object_exists = {

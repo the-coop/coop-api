@@ -66,9 +66,10 @@ impl PhysicsWorld {
                     let gravity_force = gravity_dir * gravity_strength * mass;
                     body.add_force(gravity_force, true);
                     
-                    // Add damping for more realistic falling
+                    // Add damping for more realistic falling - match client damping
                     let velocity = body.linvel();
-                    let damping_force = -velocity * 0.1; // Small damping
+                    // Match client's air damping values
+                    let damping_force = -velocity * 0.02; // Reduced damping to match client
                     body.add_force(damping_force, true);
                 }
             }
@@ -159,6 +160,34 @@ impl PhysicsWorld {
             .ccd_enabled(true)    // Enable continuous collision detection
             .build();
         self.rigid_body_set.insert(rigid_body)
+    }
+
+    pub fn create_player_body(&mut self, position: Vector3<f32>) -> RigidBodyHandle {
+        let rigid_body = RigidBodyBuilder::dynamic()
+            .translation(position)
+            .linear_damping(0.95)  // Match client damping
+            .angular_damping(0.95)  // Match client damping
+            .lock_rotations()       // Players don't rotate from physics
+            .ccd_enabled(true)
+            .build();
+        self.rigid_body_set.insert(rigid_body)
+    }
+
+    pub fn create_player_collider(&mut self, parent: RigidBodyHandle) -> ColliderHandle {
+        // Match client player dimensions
+        let height = 1.8;
+        let radius = 0.4;
+        let half_height = height / 2.0 - radius;
+        
+        let collider = ColliderBuilder::capsule_y(half_height, radius)
+            .friction(0.0)      // Match client
+            .restitution(0.0)   // Match client
+            .density(1.0)       // Match client
+            .active_collision_types(ActiveCollisionTypes::default())
+            .solver_groups(InteractionGroups::all())
+            .collision_groups(InteractionGroups::all())
+            .build();
+        self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
     }
 
     pub fn update_moving_platforms(&mut self, time: f32) {

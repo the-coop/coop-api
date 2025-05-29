@@ -2,30 +2,35 @@ use crate::messages::{PlayerInfo, Position, Rotation, ServerMessage, Velocity};
 use axum::extract::ws::Message;
 use dashmap::DashMap;
 use nalgebra::Vector3;
+use rapier3d::prelude::*;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 pub struct Player {
-    pub id: Uuid, // Add this field
-    pub position: Vector3<f32>,  // Local position relative to origin (stays f32)
+    pub id: Uuid,
+    pub position: Vector3<f32>,
     pub rotation: nalgebra::UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub sender: mpsc::UnboundedSender<Message>,
-    pub world_origin: Vector3<f64>, // Player's floating origin in world space (now f64)
-    pub is_grounded: bool, // Add this field
+    pub world_origin: Vector3<f64>,
+    pub is_grounded: bool,
+    pub body_handle: Option<RigidBodyHandle>,  // Add physics body handle
+    pub collider_handle: Option<ColliderHandle>, // Add collider handle
 }
 
 impl Player {
     pub fn new(id: Uuid, position: Vector3<f32>, sender: mpsc::UnboundedSender<Message>) -> Self {
         Self {
-            id, // Add the id field here
+            id,
             position,
             rotation: nalgebra::UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             sender,
             world_origin: Vector3::new(0.0, 0.0, 0.0),
             is_grounded: false,
+            body_handle: None,
+            collider_handle: None,
         }
     }
 
@@ -40,7 +45,7 @@ impl Player {
         
         // Update floating origin if player moves too far from it
         let distance_from_origin = self.position.magnitude();
-        if distance_from_origin > 1000.0 { // Recenter when 1km from origin
+        if distance_from_origin > 1000.0 {
             // Add current position to world origin with double precision
             self.world_origin.x += self.position.x as f64;
             self.world_origin.y += self.position.y as f64;
