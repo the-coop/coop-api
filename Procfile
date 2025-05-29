@@ -1,1 +1,1 @@
-web: cargo run
+web: RUST_LOG=info ./target/release/coop-game-server
