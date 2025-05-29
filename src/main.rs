@@ -474,15 +474,14 @@ async fn handle_client_message(
                 let mut state_write = state.write().await;
                 
                 // First, extract all needed data from player
-                let (body_handle, world_pos, player_rotation, player_velocity) = 
+                let (body_handle, world_pos, player_velocity) = 
                     if let Some(mut player) = state_write.players.get_player_mut(player_id) {
                         player.update_state(pos_clone, rot_clone, vel_clone, is_grounded);
                         
-                        // Extract all needed data
+                        // Extract all needed data (rotation is stored in player struct, not needed for physics)
                         let data = (
                             player.body_handle,
                             player.get_world_position(),
-                            player.rotation,
                             player.velocity
                         );
                         
@@ -505,8 +504,8 @@ async fn handle_client_message(
                             world_pos.z as f32
                         ), true);
                         
-                        // Set rotation - important for proper physics simulation
-                        body.set_rotation(player_rotation, true);
+                        // Note: We don't set rotation on the physics body because it has lock_rotations enabled
+                        // The rotation is stored in the Player struct and used for visual representation only
                         
                         // Set velocity for proper interpolation
                         body.set_linvel(player_velocity, true);
@@ -514,7 +513,7 @@ async fn handle_client_message(
                 }
             }
             
-            // Broadcast player state to all other players
+            // Broadcast player state to all other players with full rotation
             let update_msg = ServerMessage::PlayerState {
                 player_id: player_id.to_string(),
                 position,

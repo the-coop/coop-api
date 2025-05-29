@@ -139,9 +139,15 @@ impl PlayerManager {
                 // Convert message positions to be relative to receiver's origin
                 let relative_msg = match msg {
                     ServerMessage::PlayerState { player_id, position, rotation, velocity, is_grounded } => {
+                        // Get sender's actual world position and rotation
+                        let sender_world_pos = if let Some(sender) = self.players.get(&exclude_id) {
+                            sender.get_world_position()
+                        } else {
+                            Vector3::new(position.x as f64, position.y as f64, position.z as f64)
+                        };
+                        
                         // Calculate position relative to receiver's origin (in double precision)
-                        let world_pos = Vector3::new(position.x as f64, position.y as f64, position.z as f64);
-                        let relative_pos = world_pos - receiver.world_origin;
+                        let relative_pos = sender_world_pos - receiver.world_origin;
                         
                         ServerMessage::PlayerState {
                             player_id: player_id.clone(),
@@ -150,9 +156,9 @@ impl PlayerManager {
                                 y: relative_pos.y as f32,
                                 z: relative_pos.z as f32,
                             },
-                            rotation: rotation.clone(),
+                            rotation: rotation.clone(), // Pass rotation unchanged
                             velocity: velocity.clone(),
-                            is_grounded: *is_grounded, // Use the passed is_grounded value
+                            is_grounded: *is_grounded,
                         }
                     },
                     ServerMessage::PlayerJoined { player_id, position } => {

@@ -167,7 +167,7 @@ impl PhysicsWorld {
             .translation(position)
             .linear_damping(0.95)  // Match client damping
             .angular_damping(0.95)  // Match client damping
-            .lock_rotations()       // Players don't rotate from physics
+            .lock_rotations()       // Lock rotations to prevent physics from rotating the body
             .ccd_enabled(true)
             .build();
         self.rigid_body_set.insert(rigid_body)
