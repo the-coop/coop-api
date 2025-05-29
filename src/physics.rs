@@ -93,86 +93,6 @@ impl PhysicsWorld {
         );
     }
 
-    // The following methods are kept for future use when implementing
-    // authoritative physics simulation
-    
-    /*
-    pub fn create_player_body(
-        &mut self,
-        position: Vector3<f32>,
-        _rotation: UnitQuaternion<f32>,
-    ) -> (RigidBodyHandle, ColliderHandle) {
-        // Create a capsule-shaped rigid body for the player
-        let rigid_body = RigidBodyBuilder::dynamic()
-            .translation(position)
-            .linear_damping(0.1)
-            .angular_damping(1.0)
-            .lock_rotations()
-            .build();
-
-        let body_handle = self.rigid_body_set.insert(rigid_body);
-
-        // Create capsule collider (height = 1.8, radius = 0.4)
-        let collider = ColliderBuilder::capsule_y(0.5, 0.4)
-            .friction(0.0)
-            .restitution(0.0)
-            .density(1.0)
-            .build();
-
-        let collider_handle = self.collider_set.insert_with_parent(
-            collider,
-            body_handle,
-            &mut self.rigid_body_set,
-        );
-
-        (body_handle, collider_handle)
-    }
-
-    pub fn update_player_body(
-        &mut self,
-        handle: RigidBodyHandle,
-        position: Vector3<f32>,
-        rotation: UnitQuaternion<f32>,
-        velocity: Vector3<f32>,
-    ) {
-        if let Some(body) = self.rigid_body_set.get_mut(handle) {
-            body.set_position(Isometry3::from_parts(position.into(), rotation), true);
-            body.set_linvel(velocity, true);
-        }
-    }
-
-    pub fn remove_player_body(
-        &mut self,
-        body_handle: RigidBodyHandle,
-        _collider_handle: ColliderHandle,
-    ) {
-        self.rigid_body_set.remove(
-            body_handle,
-            &mut self.island_manager,
-            &mut self.collider_set,
-            &mut self.impulse_joint_set,
-            &mut self.multibody_joint_set,
-            true,
-        );
-    }
-    */
-
-    #[allow(dead_code)]
-    pub fn create_dynamic_body(
-        &mut self,
-        position: Vector3<f32>,
-        rotation: UnitQuaternion<f32>,
-    ) -> RigidBodyHandle {
-        let rigid_body = RigidBodyBuilder::dynamic()
-            .translation(position)
-            .rotation(rotation.scaled_axis()) // Convert quaternion to axis-angle vector
-            .linear_damping(0.8)  // Increased damping for more stability
-            .angular_damping(3.0) // Higher angular damping to prevent wild spinning
-            .ccd_enabled(true)    // Enable continuous collision detection
-            .build();
-        self.rigid_body_set.insert(rigid_body)
-    }
-
     pub fn create_ball_collider(
         &mut self,
         parent: RigidBodyHandle,
@@ -201,22 +121,6 @@ impl PhysicsWorld {
         })
     }
 
-    #[allow(dead_code)]
-    pub fn remove_dynamic_body(
-        &mut self,
-        body_handle: RigidBodyHandle,
-        _collider_handle: ColliderHandle,
-    ) {
-        self.rigid_body_set.remove(
-            body_handle,
-            &mut self.island_manager,
-            &mut self.collider_set,
-            &mut self.impulse_joint_set,
-            &mut self.multibody_joint_set,
-            true,
-        );
-    }
-
     pub fn create_fixed_body(&mut self, translation: Vector3<f32>) -> RigidBodyHandle {
         let rigid_body = RigidBodyBuilder::fixed()
             .translation(translation)
@@ -239,6 +143,21 @@ impl PhysicsWorld {
             .translation(translation)
             .build();
 
+        self.rigid_body_set.insert(rigid_body)
+    }
+
+    pub fn create_dynamic_body(
+        &mut self,
+        position: Vector3<f32>,
+        rotation: UnitQuaternion<f32>,
+    ) -> RigidBodyHandle {
+        let rigid_body = RigidBodyBuilder::dynamic()
+            .translation(position)
+            .rotation(rotation.scaled_axis()) // Convert quaternion to axis-angle vector
+            .linear_damping(0.8)  // Increased damping for more stability
+            .angular_damping(3.0) // Higher angular damping to prevent wild spinning
+            .ccd_enabled(true)    // Enable continuous collision detection
+            .build();
         self.rigid_body_set.insert(rigid_body)
     }
 

@@ -8,13 +8,6 @@ pub struct Level {
 }
 
 impl Level {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self {
-            objects: Vec::new(),
-        }
-    }
-
     pub fn create_default_multiplayer_level() -> Self {
         let mut objects = Vec::new();
         

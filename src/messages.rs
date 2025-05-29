@@ -154,10 +154,3 @@ pub struct Vec3 {
     pub y: f32,
     pub z: f32,
 }
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub enum InternalMessage {
-    Broadcast(ServerMessage),
-    SendToPlayer(uuid::Uuid, ServerMessage),
-}

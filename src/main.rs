@@ -60,6 +60,7 @@ async fn main() {
         let start_time = std::time::Instant::now();
         let mut frame_count = 0u64;
         let mut last_broadcast_time = std::time::Instant::now();
+        let mut last_cleanup_time = std::time::Instant::now(); // Track cleanup time
         
         loop {
             interval.tick().await;
@@ -67,6 +68,42 @@ async fn main() {
             
             // Check ownership expiry
             state.dynamic_objects.update_ownership_expiry();
+            
+            // Check for expired objects every 10 seconds
+            let now = std::time::Instant::now();
+            if now.duration_since(last_cleanup_time) >= Duration::from_secs(10) {
+                last_cleanup_time = now;
+                
+                // Remove objects older than 3 minutes
+                let expired = state.dynamic_objects.remove_expired_objects(Duration::from_secs(180));
+                
+                for (object_id, body_handle, collider_handle) in expired {
+                    // Remove from physics world
+                    if let (Some(body), Some(_collider)) = (body_handle, collider_handle) {
+                        // Extract mutable references to all components first
+                        let physics = &mut state.physics;
+                        physics.rigid_body_set.remove(
+                            body,
+                            &mut physics.island_manager,
+                            &mut physics.collider_set,
+                            &mut physics.impulse_joint_set,
+                            &mut physics.multibody_joint_set,
+                            true,
+                        );
+                    }
+                    
+                    info!("Removed expired rock: {}", object_id);
+                    
+                    // Broadcast removal to all players
+                    let remove_msg = ServerMessage::DynamicObjectRemove {
+                        object_id: object_id.clone(),
+                    };
+                    
+                    for player_entry in state.players.iter() {
+                        player_entry.value().send_message(&remove_msg).await;
+                    }
+                }
+            }
             
             // Update moving platforms
             let elapsed = start_time.elapsed().as_secs_f32();

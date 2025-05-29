@@ -1,4 +1,4 @@
-use crate::messages::{DynamicObjectInfo, Position, Rotation, ServerMessage, Velocity};
+use crate::messages::{DynamicObjectInfo, Position, Rotation, ServerMessage};
 use dashmap::DashMap;
 use nalgebra::{UnitQuaternion, Vector3};
 use rapier3d::prelude::*;
@@ -18,6 +18,7 @@ pub struct DynamicObject {
     pub collider_handle: Option<ColliderHandle>, // Physics collider handle
     pub owner_id: Option<Uuid>, // Current owner
     pub ownership_expires: Option<Instant>, // When ownership expires
+    pub spawn_time: Instant, // When the object was spawned
 }
 
 impl DynamicObject {
@@ -34,26 +35,7 @@ impl DynamicObject {
             collider_handle: None,
             owner_id: None,
             ownership_expires: None,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity) {
-        // Position is relative to object's origin
-        self.position = Vector3::new(pos.x, pos.y, pos.z);
-        self.rotation = UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
-            rot.w, rot.x, rot.y, rot.z,
-        ));
-        self.velocity = Vector3::new(vel.x, vel.y, vel.z);
-        
-        // Update floating origin if object moves too far from it
-        let distance_from_origin = self.position.magnitude();
-        if distance_from_origin > 1000.0 { // Recenter when 1km from origin
-            // Add current position to world origin with double precision
-            self.world_origin.x += self.position.x as f64;
-            self.world_origin.y += self.position.y as f64;
-            self.world_origin.z += self.position.z as f64;
-            self.position = Vector3::zeros();
+            spawn_time: Instant::now(), // Track when object was created
         }
     }
 
@@ -103,6 +85,10 @@ impl DynamicObject {
         self.owner_id = Some(player_id);
         self.ownership_expires = Some(Instant::now() + duration);
     }
+
+    pub fn is_expired(&self, lifetime: Duration) -> bool {
+        Instant::now().duration_since(self.spawn_time) > lifetime
+    }
 }
 
 pub struct DynamicObjectManager {
@@ -114,15 +100,6 @@ impl DynamicObjectManager {
         Self {
             objects: Arc::new(DashMap::new()),
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn spawn_rock(&self, world_position: Vector3<f64>) -> String {
-        let scale = 0.8 + rand::random::<f32>() * 0.4; // 0.8 to 1.2
-        let rock = DynamicObject::new("rock".to_string(), world_position, scale);
-        let id = rock.id.clone();
-        self.objects.insert(id.clone(), rock);
-        id
     }
 
     pub fn spawn_rock_with_physics(
@@ -141,13 +118,6 @@ impl DynamicObjectManager {
         let id = rock.id.clone();
         self.objects.insert(id.clone(), rock);
         id
-    }
-
-    #[allow(dead_code)]
-    pub fn update_object(&self, id: &str, pos: Position, rot: Rotation, vel: Velocity) {
-        if let Some(mut object) = self.objects.get_mut(id) {
-            object.update_state(pos, rot, vel);
-        }
     }
 
     pub fn update_from_physics_world_position(
@@ -171,15 +141,6 @@ impl DynamicObjectManager {
         } else {
             false
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn remove_object(&self, id: &str) -> Option<(DynamicObject, Option<RigidBodyHandle>, Option<ColliderHandle>)> {
-        self.objects.remove(id).map(|(_, obj)| {
-            let body = obj.body_handle;
-            let collider = obj.collider_handle;
-            (obj, body, collider)
-        })
     }
 
     pub fn get_all_objects_relative_to(&self, origin: &Vector3<f64>) -> Vec<DynamicObjectInfo> {
@@ -227,11 +188,6 @@ impl DynamicObjectManager {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn get_owner(&self, object_id: &str) -> Option<Uuid> {
-        self.objects.get(object_id).and_then(|obj| obj.owner_id)
-    }
-
     pub fn update_ownership_expiry(&self) {
         let now = std::time::Instant::now();
         let mut expired_objects = Vec::new();
@@ -253,5 +209,26 @@ impl DynamicObjectManager {
                 tracing::debug!("Ownership expired for object {}", object_id);
             }
         }
+    }
+
+    pub fn remove_expired_objects(&self, lifetime: Duration) -> Vec<(String, Option<RigidBodyHandle>, Option<ColliderHandle>)> {
+        let mut expired_objects = Vec::new();
+        
+        // First pass: collect expired object IDs
+        for entry in self.objects.iter() {
+            if entry.value().is_expired(lifetime) {
+                expired_objects.push(entry.key().clone());
+            }
+        }
+        
+        // Second pass: remove the expired objects
+        let mut removed = Vec::new();
+        for object_id in expired_objects {
+            if let Some((_, obj)) = self.objects.remove(&object_id) {
+                removed.push((object_id, obj.body_handle, obj.collider_handle));
+            }
+        }
+        
+        removed
     }
 }

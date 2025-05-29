@@ -172,20 +172,6 @@ impl PlayerManager {
         }
     }
 
-    #[allow(dead_code)]
-    pub async fn send_origin_update(&self, player_id: Uuid) {
-        if let Some(player) = self.players.get(&player_id) {
-            let origin_msg = ServerMessage::OriginUpdate {
-                origin: Position {
-                    x: player.world_origin.x as f32,  // Send as f32 to client
-                    y: player.world_origin.y as f32,
-                    z: player.world_origin.z as f32,
-                },
-            };
-            player.send_message(&origin_msg).await;
-        }
-    }
-
     pub async fn broadcast_to_all(&self, msg: &ServerMessage) {
         for entry in self.players.iter() {
             entry.value().send_message(msg).await;
