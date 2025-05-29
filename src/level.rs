@@ -128,6 +128,107 @@ impl Level {
             });
         }
         
+        // Add water pool and its walls
+        let platform_height = 3.0;
+        let wall_base_y = 30.0 + platform_height / 2.0;
+        let wall_height = 3.0;
+        let wall_thickness = 1.0;
+        let pool_width = 12.0;
+        let pool_depth = 12.0;
+        let water_x = 15.0;
+        let water_z = 15.0;
+        
+        // Water pool walls
+        // North wall
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: water_x, 
+                y: wall_base_y + wall_height / 2.0, 
+                z: water_z - pool_depth / 2.0 - wall_thickness / 2.0 
+            },
+            rotation: None,
+            scale: Some(Vec3 { 
+                x: pool_width + wall_thickness * 2.0, 
+                y: wall_height, 
+                z: wall_thickness 
+            }),
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // South wall
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: water_x, 
+                y: wall_base_y + wall_height / 2.0, 
+                z: water_z + pool_depth / 2.0 + wall_thickness / 2.0 
+            },
+            rotation: None,
+            scale: Some(Vec3 { 
+                x: pool_width + wall_thickness * 2.0, 
+                y: wall_height, 
+                z: wall_thickness 
+            }),
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // East wall
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: water_x + pool_width / 2.0 + wall_thickness / 2.0, 
+                y: wall_base_y + wall_height / 2.0, 
+                z: water_z 
+            },
+            rotation: None,
+            scale: Some(Vec3 { 
+                x: wall_thickness, 
+                y: wall_height, 
+                z: pool_depth 
+            }),
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // West wall
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: water_x - pool_width / 2.0 - wall_thickness / 2.0, 
+                y: wall_base_y + wall_height / 2.0, 
+                z: water_z 
+            },
+            rotation: None,
+            scale: Some(Vec3 { 
+                x: wall_thickness, 
+                y: wall_height, 
+                z: pool_depth 
+            }),
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // Water volume
+        objects.push(LevelObject {
+            object_type: "water".to_string(),
+            position: Position { 
+                x: water_x, 
+                y: wall_base_y + wall_height / 2.0, 
+                z: water_z 
+            },
+            rotation: None,
+            scale: Some(Vec3 { 
+                x: pool_width, 
+                y: wall_height * 0.9, 
+                z: pool_depth 
+            }),
+            properties: None,
+            terrain_data: None,
+        });
+        
         Self { objects }
     }
 
