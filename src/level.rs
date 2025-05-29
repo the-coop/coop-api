@@ -128,6 +128,20 @@ impl Level {
             });
         }
         
+        // Add water volume on the platform
+        objects.push(LevelObject {
+            object_type: "water_volume".to_string(),
+            position: Position { x: -10.0, y: 30.0, z: 15.0 }, // Near the ramp
+            rotation: None,
+            scale: Some(Vec3 { x: 15.0, y: 10.0, z: 15.0 }), // 15x10x15 water pool
+            properties: Some(serde_json::json!({
+                "color": "#4488ff",
+                "opacity": 0.5,
+                "flow_speed": 0.0
+            })),
+            terrain_data: None,
+        });
+        
         Self { objects }
     }
 
@@ -148,6 +162,9 @@ impl Level {
                 }
                 "static_rock" => {
                     self.build_static_rock_physics(physics, &obj);
+                }
+                "water_volume" => {
+                    self.build_water_volume_physics(physics, &obj);
                 }
                 _ => {
                     tracing::warn!("Unknown object type in level: {}", obj.object_type);
@@ -250,6 +267,24 @@ impl Level {
                 .restitution(0.4)
                 .build();
             physics.collider_set.insert_with_parent(collider, body, &mut physics.rigid_body_set);
+        }
+    }
+
+    fn build_water_volume_physics(&self, physics: &mut PhysicsWorld, obj: &LevelObject) {
+        let pos = Vector3::new(obj.position.x, obj.position.y, obj.position.z);
+        let body = physics.create_fixed_body(pos);
+        
+        if let Some(scale) = &obj.scale {
+            let half_extents = Vector3::new(scale.x / 2.0, scale.y / 2.0, scale.z / 2.0);
+            // Create sensor collider for water detection
+            let collider = ColliderBuilder::cuboid(half_extents.x, half_extents.y, half_extents.z)
+                .sensor(true) // Make it a sensor so players can pass through
+                .collision_groups(InteractionGroups::new(0x0002.into(), 0xFFFF.into())) // Water layer
+                .build();
+            let handle = physics.collider_set.insert_with_parent(collider, body, &mut physics.rigid_body_set);
+            
+            // Store water volume for physics queries
+            physics.water_volumes.push((handle, pos, scale.clone()));  // Clone the scale
         }
     }
 }

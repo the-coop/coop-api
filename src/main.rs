@@ -463,36 +463,44 @@ async fn handle_client_message(
     msg: ClientMessage,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match msg {
-        ClientMessage::PlayerUpdate { position, rotation, velocity, is_grounded } => {
+        ClientMessage::PlayerUpdate { position, rotation, velocity, is_grounded, is_swimming } => {
             // Clone values for the async block
             let pos_clone = position.clone();
             let rot_clone = rotation.clone();
             let vel_clone = velocity.clone();
             
             // Update player state and physics body
-            {
+            let player_is_swimming = {
                 let mut state_write = state.write().await;
                 
                 // First, extract all needed data from player
-                let (body_handle, world_pos, player_velocity) = 
+                let player_data = {
                     if let Some(mut player) = state_write.players.get_player_mut(player_id) {
                         player.update_state(pos_clone, rot_clone, vel_clone, is_grounded);
+                        player.is_swimming = is_swimming;
                         
-                        // Extract all needed data (rotation is stored in player struct, not needed for physics)
+                        // Check swimming state from physics
+                        let physics_swimming = player.check_swimming(&state_write.physics);
+                        
+                        // Extract all needed data
                         let data = (
                             player.body_handle,
                             player.get_world_position(),
-                            player.velocity
+                            player.velocity.clone(),
+                            physics_swimming || is_swimming // Trust client or physics
                         );
                         
-                        // Explicitly drop the player borrow
-                        drop(player);
-                        
-                        data
+                        Some(data)
                     } else {
-                        // Player not found, return early
-                        return Ok(());
-                    };
+                        None
+                    }
+                }; // The mutable borrow of player is dropped here
+                
+                // Check if we got player data
+                let (body_handle, world_pos, player_velocity, final_swimming_state) = match player_data {
+                    Some(data) => data,
+                    None => return Ok(()), // Player not found
+                };
                 
                 // Now update physics body if we have a handle
                 if let Some(body_handle) = body_handle {
@@ -504,22 +512,28 @@ async fn handle_client_message(
                             world_pos.z as f32
                         ), true);
                         
-                        // Note: We don't set rotation on the physics body because it has lock_rotations enabled
-                        // The rotation is stored in the Player struct and used for visual representation only
-                        
                         // Set velocity for proper interpolation
                         body.set_linvel(player_velocity, true);
                     }
                 }
-            }
+                
+                // Update swimming state in player using a separate access
+                if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+                    player.is_swimming = final_swimming_state;
+                }
+                
+                // Return the final swimming state
+                final_swimming_state
+            }; // state_write is dropped here
             
-            // Broadcast player state to all other players with full rotation
+            // Broadcast player state to all other players with swimming state
             let update_msg = ServerMessage::PlayerState {
                 player_id: player_id.to_string(),
                 position,
                 rotation,
                 velocity,
                 is_grounded,
+                is_swimming: player_is_swimming, // Use the final swimming state
             };
             
             let state_read = state.read().await;

@@ -1,4 +1,5 @@
 use crate::messages::{PlayerInfo, Position, Rotation, ServerMessage, Velocity};
+use crate::physics::PhysicsWorld;  // Add this import
 use axum::extract::ws::Message;
 use dashmap::DashMap;
 use nalgebra::Vector3;
@@ -17,6 +18,7 @@ pub struct Player {
     pub is_grounded: bool,
     pub body_handle: Option<RigidBodyHandle>,  // Add physics body handle
     pub collider_handle: Option<ColliderHandle>, // Add collider handle
+    pub is_swimming: bool,
 }
 
 impl Player {
@@ -31,6 +33,7 @@ impl Player {
             is_grounded: false,
             body_handle: None,
             collider_handle: None,
+            is_swimming: false,
         }
     }
 
@@ -52,6 +55,16 @@ impl Player {
             self.world_origin.z += self.position.z as f64;
             self.position = Vector3::zeros();
         }
+    }
+
+    pub fn check_swimming(&mut self, physics: &PhysicsWorld) -> bool {
+        if let Some(body_handle) = self.body_handle {
+            if let Some(body) = physics.rigid_body_set.get(body_handle) {
+                let pos = body.translation();
+                self.is_swimming = physics.is_position_in_water(&pos);
+            }
+        }
+        self.is_swimming
     }
 
     pub fn get_world_position(&self) -> Vector3<f64> {
@@ -138,7 +151,7 @@ impl PlayerManager {
                 
                 // Convert message positions to be relative to receiver's origin
                 let relative_msg = match msg {
-                    ServerMessage::PlayerState { player_id, position, rotation, velocity, is_grounded } => {
+                    ServerMessage::PlayerState { player_id, position, rotation, velocity, is_grounded, is_swimming } => {
                         // Get sender's actual world position and rotation
                         let sender_world_pos = if let Some(sender) = self.players.get(&exclude_id) {
                             sender.get_world_position()
@@ -159,6 +172,7 @@ impl PlayerManager {
                             rotation: rotation.clone(), // Pass rotation unchanged
                             velocity: velocity.clone(),
                             is_grounded: *is_grounded,
+                            is_swimming: *is_swimming,  // Include is_swimming
                         }
                     },
                     ServerMessage::PlayerJoined { player_id, position } => {

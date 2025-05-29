@@ -1,5 +1,6 @@
 use nalgebra::{Vector3, UnitQuaternion};
 use rapier3d::prelude::*;
+use crate::messages::Vec3;
 
 pub struct PhysicsWorld {
     pub rigid_body_set: RigidBodySet,
@@ -14,6 +15,7 @@ pub struct PhysicsWorld {
     pub ccd_solver: CCDSolver,
     pub gravity: Vector3<f32>,
     pub moving_platforms: Vec<(RigidBodyHandle, f32, Option<serde_json::Value>)>, // body, initial_x, properties
+    pub water_volumes: Vec<(ColliderHandle, Vector3<f32>, Vec3)>, // collider, position, scale
 }
 
 impl PhysicsWorld {
@@ -43,6 +45,7 @@ impl PhysicsWorld {
             ccd_solver,
             gravity,
             moving_platforms: Vec::new(),
+            water_volumes: Vec::new(),
         }
     }
 
@@ -51,26 +54,53 @@ impl PhysicsWorld {
         let gravity_center = self.gravity;
         let gravity_strength = 25.0;
         
-        for (_handle, body) in self.rigid_body_set.iter_mut() {
-            if body.is_dynamic() {
+        // First collect body handles and positions to check water
+        let body_water_checks: Vec<(RigidBodyHandle, bool)> = self.rigid_body_set.iter()
+            .filter_map(|(handle, body)| {
+                if body.is_dynamic() {
+                    let pos = body.translation();
+                    let in_water = self.is_position_in_water(&pos);
+                    Some((handle, in_water))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        // Now apply forces based on water state
+        for (handle, in_water) in body_water_checks {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
                 let pos = body.translation();
-                let to_center = gravity_center - pos;
-                let distance = to_center.magnitude();
                 
-                if distance > 0.1 {
-                    let gravity_dir = to_center / distance;
-                    // Reset forces before applying to prevent accumulation
+                if in_water {
+                    // Apply buoyancy instead of gravity
                     body.reset_forces(true);
-                    // Apply gravity force scaled by mass
-                    let mass = body.mass();
-                    let gravity_force = gravity_dir * gravity_strength * mass;
-                    body.add_force(gravity_force, true);
                     
-                    // Add damping for more realistic falling - match client damping
+                    // Apply slight upward buoyancy force
+                    let mass = body.mass();
+                    let buoyancy_force = Vector3::new(0.0, 5.0 * mass, 0.0);
+                    body.add_force(buoyancy_force, true);
+                    
+                    // Apply water drag
                     let velocity = body.linvel();
-                    // Match client's air damping values
-                    let damping_force = -velocity * 0.02; // Reduced damping to match client
-                    body.add_force(damping_force, true);
+                    let drag_force = -velocity * 2.0; // Higher drag in water
+                    body.add_force(drag_force, true);
+                } else {
+                    // Normal gravity
+                    let to_center = gravity_center - pos;
+                    let distance = to_center.magnitude();
+                    
+                    if distance > 0.1 {
+                        let gravity_dir = to_center / distance;
+                        body.reset_forces(true);
+                        let mass = body.mass();
+                        let gravity_force = gravity_dir * gravity_strength * mass;
+                        body.add_force(gravity_force, true);
+                        
+                        let velocity = body.linvel();
+                        let damping_force = -velocity * 0.02;
+                        body.add_force(damping_force, true);
+                    }
                 }
             }
         }
@@ -92,6 +122,21 @@ impl PhysicsWorld {
             &(),
             &(),
         );
+    }
+
+    pub fn is_position_in_water(&self, pos: &Vector3<f32>) -> bool {
+        for (_, volume_pos, scale) in &self.water_volumes {
+            let half_extents = Vector3::new(scale.x / 2.0, scale.y / 2.0, scale.z / 2.0);
+            let min = volume_pos - half_extents;
+            let max = volume_pos + half_extents;
+            
+            if pos.x >= min.x && pos.x <= max.x &&
+               pos.y >= min.y && pos.y <= max.y &&
+               pos.z >= min.z && pos.z <= max.z {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn create_ball_collider(

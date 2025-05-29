@@ -31,6 +31,8 @@ pub enum ClientMessage {
         velocity: Velocity,
         #[serde(default)]
         is_grounded: bool,
+        #[serde(default)]
+        is_swimming: bool,
     },
     PlayerAction {
         action: String,
@@ -74,6 +76,8 @@ pub enum ServerMessage {
         velocity: Velocity,
         #[serde(default)]
         is_grounded: bool,
+        #[serde(default)]
+        is_swimming: bool,
     },
     PlayersList {
         players: Vec<PlayerInfo>,
