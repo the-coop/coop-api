@@ -76,20 +76,20 @@ impl PhysicsWorld {
                     // Apply buoyancy instead of gravity
                     body.reset_forces(true);
                     
-                    // Apply upward buoyancy force (20% of gravity strength)
+                    // Apply upward buoyancy force (30% of gravity strength - matching client)
                     let to_center = gravity_center - pos;
                     let distance = to_center.magnitude();
                     
                     if distance > 0.1 {
                         let gravity_dir = to_center / distance;
                         let mass = body.mass();
-                        let buoyancy_force = -gravity_dir * gravity_strength * 0.2 * mass;
+                        let buoyancy_force = -gravity_dir * gravity_strength * 0.3 * mass; // Changed from 0.2 to 0.3
                         body.add_force(buoyancy_force, true);
                     }
                     
-                    // Apply water drag
-                    let velocity = *body.linvel(); // Clone velocity too
-                    let drag_force = -velocity * 2.0; // Higher drag in water
+                    // Apply water drag (matching client drag coefficient)
+                    let velocity = *body.linvel();
+                    let drag_force = -velocity * 3.0; // Changed from 2.0 to 3.0 to match client
                     body.add_force(drag_force, true);
                 } else {
                     // Normal gravity
@@ -103,7 +103,7 @@ impl PhysicsWorld {
                         let gravity_force = gravity_dir * gravity_strength * mass;
                         body.add_force(gravity_force, true);
                         
-                        let velocity = *body.linvel(); // Clone velocity
+                        let velocity = *body.linvel();
                         let damping_force = -velocity * 0.02;
                         body.add_force(damping_force, true);
                     }
