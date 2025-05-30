@@ -70,19 +70,25 @@ impl PhysicsWorld {
         // Now apply forces based on water state
         for (handle, in_water) in body_water_checks {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {
-                let pos = body.translation();
+                let pos = *body.translation(); // Clone the position
                 
                 if in_water {
                     // Apply buoyancy instead of gravity
                     body.reset_forces(true);
                     
-                    // Apply slight upward buoyancy force
-                    let mass = body.mass();
-                    let buoyancy_force = Vector3::new(0.0, 5.0 * mass, 0.0);
-                    body.add_force(buoyancy_force, true);
+                    // Apply upward buoyancy force (20% of gravity strength)
+                    let to_center = gravity_center - pos;
+                    let distance = to_center.magnitude();
+                    
+                    if distance > 0.1 {
+                        let gravity_dir = to_center / distance;
+                        let mass = body.mass();
+                        let buoyancy_force = -gravity_dir * gravity_strength * 0.2 * mass;
+                        body.add_force(buoyancy_force, true);
+                    }
                     
                     // Apply water drag
-                    let velocity = body.linvel();
+                    let velocity = *body.linvel(); // Clone velocity too
                     let drag_force = -velocity * 2.0; // Higher drag in water
                     body.add_force(drag_force, true);
                 } else {
@@ -97,7 +103,7 @@ impl PhysicsWorld {
                         let gravity_force = gravity_dir * gravity_strength * mass;
                         body.add_force(gravity_force, true);
                         
-                        let velocity = body.linvel();
+                        let velocity = *body.linvel(); // Clone velocity
                         let damping_force = -velocity * 0.02;
                         body.add_force(damping_force, true);
                     }
