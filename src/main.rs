@@ -16,6 +16,7 @@ use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 use nalgebra::{Vector3, UnitQuaternion};
 use tracing::{info, error, debug};
+use rapier3d::prelude::{RigidBodyBuilder, ColliderBuilder};
 
 mod dynamic_objects;
 mod game_state;
@@ -45,11 +46,56 @@ async fn main() {
     info!("Physics world built with {} bodies and {} colliders", 
         physics.rigid_body_set.len(), 
         physics.collider_set.len());
+    
+    // Track dynamic platforms from level in dynamic objects manager
+    let mut dynamic_objects = DynamicObjectManager::new();
+    
+    // Spawn the dynamic platform above the water pool as a proper dynamic object
+    {
+        // Platform position: above water (water is at y=36.5, so put platform at y=44.5)
+        let platform_pos = nalgebra::Vector3::new(15.0, 44.5, 0.0);
+        let platform_scale = nalgebra::Vector3::new(4.0, 0.5, 4.0);
+        
+        // Create physics body
+        let rigid_body = RigidBodyBuilder::dynamic()
+            .translation(platform_pos)
+            .linear_damping(1.0)
+            .angular_damping(2.0)
+            .build();
+        
+        let body_handle = physics.rigid_body_set.insert(rigid_body);
+        
+        // Create collider
+        let half_extents = Vector3::new(platform_scale.x / 2.0, platform_scale.y / 2.0, platform_scale.z / 2.0);
+        let volume = platform_scale.x * platform_scale.y * platform_scale.z;
+        let mass = 5.0;
+        
+        let collider = ColliderBuilder::cuboid(half_extents.x, half_extents.y, half_extents.z)
+            .density(mass / volume)
+            .friction(0.8)
+            .restitution(0.2)
+            .build();
+            
+        let collider_handle = physics.collider_set.insert_with_parent(collider, body_handle, &mut physics.rigid_body_set);
+        
+        // Track in dynamic objects
+        let platform_id = "pool_dynamic_platform";
+        dynamic_objects.spawn_object(
+            platform_id,
+            "dynamic_platform".to_string(),
+            nalgebra::Vector3::new(platform_pos.x as f64, platform_pos.y as f64, platform_pos.z as f64),
+            Some(body_handle),
+            Some(collider_handle),
+            1.0
+        );
+        
+        info!("Spawned dynamic platform above pool at {:?}", platform_pos);
+    }
 
     let state = Arc::new(RwLock::new(AppState {
         players: PlayerManager::new(),
         physics,
-        dynamic_objects: DynamicObjectManager::new(),
+        dynamic_objects,
         level,
     }));
 
@@ -61,6 +107,7 @@ async fn main() {
         let mut frame_count = 0u64;
         let mut last_broadcast_time = std::time::Instant::now();
         let mut last_cleanup_time = std::time::Instant::now(); // Track cleanup time
+        let mut last_platform_broadcast = std::time::Instant::now(); // Track platform broadcast time
         
         loop {
             interval.tick().await;
@@ -109,7 +156,34 @@ async fn main() {
             let elapsed = start_time.elapsed().as_secs_f32();
             state.physics.update_moving_platforms(elapsed);
             
-            // Step physics
+            // Broadcast moving platform positions every 50ms (20Hz)
+            let now = std::time::Instant::now();
+            if now.duration_since(last_platform_broadcast) >= Duration::from_millis(50) {
+                last_platform_broadcast = now;
+                
+                // Get platform positions from physics
+                for (i, (handle, _initial_x, _properties)) in state.physics.moving_platforms.iter().enumerate() {
+                    if let Some(body) = state.physics.rigid_body_set.get(*handle) {
+                        let pos = body.translation();
+                        
+                        // Broadcast platform position to all players
+                        let platform_msg = ServerMessage::PlatformUpdate {
+                            platform_id: format!("moving_platform_{}", i),
+                            position: Position {
+                                x: pos.x,
+                                y: pos.y,
+                                z: pos.z,
+                            },
+                        };
+                        
+                        for player_entry in state.players.iter() {
+                            player_entry.value().send_message(&platform_msg).await;
+                        }
+                    }
+                }
+            }
+            
+            // Step physics (this applies gravity to dynamic platforms)
             state.physics.step();
             
             // Log every 60 frames (1 second)
@@ -319,9 +393,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<RwLock<AppState>>) {
         if let Some(player) = state_write.players.get_player(player_id) {
             let objects = state_write.dynamic_objects.get_all_objects_relative_to(&player.world_origin);
             if !objects.is_empty() {
-                let objects_msg = ServerMessage::DynamicObjectsList { objects };
-                if tx.send(Message::Text(serde_json::to_string(&objects_msg).unwrap())).is_err() {
-                    error!("Failed to send dynamic objects list to {}", player_id);
+                // Filter out level dynamic platforms from the list since they're already in level data
+                let filtered_objects: Vec<_> = objects.into_iter()
+                    .filter(|obj| !obj.id.starts_with("level_dynamic_platform_"))
+                    .collect();
+                
+                if !filtered_objects.is_empty() {
+                    let objects_msg = ServerMessage::DynamicObjectsList { objects: filtered_objects };
+                    if tx.send(Message::Text(serde_json::to_string(&objects_msg).unwrap())).is_err() {
+                        error!("Failed to send dynamic objects list to {}", player_id);
+                    }
                 }
             }
         }
@@ -372,6 +453,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<RwLock<AppState>>) {
                 receiver.send_message(&spawn_msg).await;
             }
         }
+
+        // Remove the dynamic platform spawn here - it's already in the level data
+        // The duplicate platform was being created here
 
         // Broadcast new player to others
         let join_msg = ServerMessage::PlayerJoined {

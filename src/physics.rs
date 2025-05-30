@@ -1,8 +1,8 @@
 use nalgebra::{Vector3, UnitQuaternion};
 use rapier3d::prelude::*;
-use crate::messages::Vec3;
 
 pub struct PhysicsWorld {
+    pub gravity: Vector3<f32>,
     pub rigid_body_set: RigidBodySet,
     pub collider_set: ColliderSet,
     pub integration_parameters: IntegrationParameters,
@@ -13,14 +13,13 @@ pub struct PhysicsWorld {
     pub impulse_joint_set: ImpulseJointSet,
     pub multibody_joint_set: MultibodyJointSet,
     pub ccd_solver: CCDSolver,
-    pub gravity: Vector3<f32>,
-    pub moving_platforms: Vec<(RigidBodyHandle, f32, Option<serde_json::Value>)>, // body, initial_x, properties
-    pub water_volumes: Vec<(ColliderHandle, Vector3<f32>, Vec3)>, // collider, position, scale
+    pub moving_platforms: Vec<(RigidBodyHandle, f32, Option<serde_json::Value>)>, // Store body handle, initial X, and properties
+    pub water_volumes: Vec<(ColliderHandle, Vector3<f32>, crate::messages::Vec3)>, // Store water volume info
+    pub dynamic_platforms: Vec<RigidBodyHandle>, // Track dynamic platforms
 }
 
 impl PhysicsWorld {
     pub fn new() -> Self {
-        let gravity = vector![0.0, -250.0, 0.0]; // Default gravity center at planet position
         let integration_parameters = IntegrationParameters::default();
         let physics_pipeline = PhysicsPipeline::new();
         let island_manager = IslandManager::new();
@@ -33,6 +32,7 @@ impl PhysicsWorld {
         let collider_set = ColliderSet::new();
 
         Self {
+            gravity: Vector3::new(0.0, -250.0, 0.0),
             rigid_body_set,
             collider_set,
             integration_parameters,
@@ -43,16 +43,30 @@ impl PhysicsWorld {
             impulse_joint_set,
             multibody_joint_set,
             ccd_solver,
-            gravity,
             moving_platforms: Vec::new(),
             water_volumes: Vec::new(),
+            dynamic_platforms: Vec::new(),
         }
     }
 
     pub fn step(&mut self) {
-        // Apply custom gravity to all dynamic bodies before stepping
+        // Clear forces on all dynamic bodies
+        for (_, rb) in self.rigid_body_set.iter_mut() {
+            if rb.is_dynamic() {
+                rb.reset_forces(true);
+                rb.reset_torques(true);
+            }
+        }
+        
+        // Apply gravity to all dynamic bodies (including dynamic platforms)
         let gravity_center = self.gravity;
         let gravity_strength = 25.0;
+        
+        // Log dynamic platform count for debugging
+        let dynamic_platform_count = self.dynamic_platforms.len();
+        if dynamic_platform_count > 0 {
+            tracing::debug!("Applying gravity to {} dynamic platforms", dynamic_platform_count);
+        }
         
         // First collect body handles and positions to check water
         let body_water_checks: Vec<(RigidBodyHandle, bool)> = self.rigid_body_set.iter()

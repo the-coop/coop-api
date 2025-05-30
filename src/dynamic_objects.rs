@@ -120,6 +120,34 @@ impl DynamicObjectManager {
         id
     }
 
+    pub fn spawn_object(
+        &mut self,
+        object_id: &str,
+        object_type: String,
+        world_origin: nalgebra::Vector3<f64>,
+        body_handle: Option<RigidBodyHandle>,
+        collider_handle: Option<ColliderHandle>,
+        scale: f32,
+    ) -> String {
+        let object = DynamicObject {
+            id: object_id.to_string(),
+            object_type,
+            world_origin,
+            position: nalgebra::Vector3::zeros(),
+            rotation: nalgebra::UnitQuaternion::identity(),
+            velocity: nalgebra::Vector3::zeros(),
+            body_handle,
+            collider_handle,
+            owner_id: None,
+            ownership_expires: None,
+            spawn_time: Instant::now(), // Track when object was created
+            scale,
+        };
+        
+        self.objects.insert(object_id.to_string(), object);
+        object_id.to_string()
+    }
+
     pub fn update_from_physics_world_position(
         &self,
         id: &str,

@@ -129,9 +129,15 @@ impl Level {
         }
         
         // Add water volume on the platform
+        // Platform is at y=30 with height=3, so top is at y=31.5
+        // Water should sit on top, so bottom at y=31.5
         objects.push(LevelObject {
             object_type: "water_volume".to_string(),
-            position: Position { x: -10.0, y: 30.0, z: 15.0 }, // Near the ramp
+            position: Position { 
+                x: 15.0, // Positive X side (right side when facing -Z)
+                y: 31.5 + 5.0, // Platform top (31.5) + half of water height (5.0)
+                z: 0.0 
+            },
             rotation: None,
             scale: Some(Vec3 { x: 15.0, y: 10.0, z: 15.0 }), // 15x10x15 water pool
             properties: Some(serde_json::json!({
@@ -139,6 +145,80 @@ impl Level {
                 "opacity": 0.5,
                 "flow_speed": 0.0
             })),
+            terrain_data: None,
+        });
+        
+        // Add walls around water volume
+        // Water center is at x=15, z=0, and extends ±7.5 in each direction
+        
+        // Back wall (positive Z side)
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: 15.0, 
+                y: 31.5 + 5.0, // Same center height as water
+                z: 8.5 // Water edge (7.5) + wall half-thickness (0.5)
+            },
+            rotation: None,
+            scale: Some(Vec3 { x: 17.0, y: 12.0, z: 1.0 }), // Wider and taller than water
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // Front wall (negative Z side)
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: 15.0, 
+                y: 31.5 + 5.0,
+                z: -8.5 
+            },
+            rotation: None,
+            scale: Some(Vec3 { x: 17.0, y: 12.0, z: 1.0 }),
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // Right wall (positive X side)
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: 23.5, // Water edge (22.5) + wall half-thickness (0.5)
+                y: 31.5 + 5.0,
+                z: 0.0 
+            },
+            rotation: None,
+            scale: Some(Vec3 { x: 1.0, y: 12.0, z: 17.0 }), // Swapped x and z for side wall
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // Left wall (negative X side) - partial wall with gap for entry
+        // Upper part
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: 6.5, // Water edge (7.5) - wall half-thickness (0.5)
+                y: 31.5 + 5.0,
+                z: 4.5 // Offset to create gap in middle
+            },
+            rotation: None,
+            scale: Some(Vec3 { x: 1.0, y: 12.0, z: 8.0 }), // Partial wall
+            properties: None,
+            terrain_data: None,
+        });
+        
+        // Lower part
+        objects.push(LevelObject {
+            object_type: "wall".to_string(),
+            position: Position { 
+                x: 6.5,
+                y: 31.5 + 5.0,
+                z: -4.5 
+            },
+            rotation: None,
+            scale: Some(Vec3 { x: 1.0, y: 12.0, z: 8.0 }), // Partial wall
+            properties: None,
             terrain_data: None,
         });
         
@@ -165,6 +245,9 @@ impl Level {
                 }
                 "water_volume" => {
                     self.build_water_volume_physics(physics, &obj);
+                }
+                "dynamic_platform" => {
+                    self.build_dynamic_platform_physics(physics, &obj);
                 }
                 _ => {
                     tracing::warn!("Unknown object type in level: {}", obj.object_type);
@@ -286,6 +369,11 @@ impl Level {
             // Store water volume for physics queries
             physics.water_volumes.push((handle, pos, scale.clone()));  // Clone the scale
         }
+    }
+
+    fn build_dynamic_platform_physics(&self, _physics: &mut PhysicsWorld, _obj: &LevelObject) {
+        // This method is no longer needed since we're not building dynamic platforms from level data
+        tracing::warn!("build_dynamic_platform_physics called but dynamic platforms should be spawned separately");
     }
 }
 

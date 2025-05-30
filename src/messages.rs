@@ -115,6 +115,10 @@ pub enum ServerMessage {
     ObjectOwnershipRevoked {
         object_id: String,
     },
+    PlatformUpdate {
+        platform_id: String,
+        position: Position,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
