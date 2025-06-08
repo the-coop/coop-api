@@ -24,6 +24,7 @@ mod level;
 mod messages;
 mod physics;
 mod player;
+mod projectiles;
 
 use dynamic_objects::DynamicObjectManager;
 use game_state::AppState;
@@ -31,6 +32,7 @@ use level::Level;
 use messages::{ClientMessage, ServerMessage, Position, Rotation, Velocity};
 use physics::PhysicsWorld;
 use player::PlayerManager;
+use projectiles::{Projectile, ProjectileManager};
 
 #[tokio::main]
 async fn main() {
@@ -97,6 +99,7 @@ async fn main() {
         physics,
         dynamic_objects,
         level,
+        projectiles: Arc::new(ProjectileManager::new()),
     }));
 
     // Spawn physics update loop
@@ -751,10 +754,36 @@ async fn handle_client_message(
                 }
             }
         }
-        _ => {
-            // Handle other message types if needed
+        ClientMessage::EnterVehicle { vehicle_id } => {
+            // Update player state
+            if let Some(mut player) = state.players.get_player_mut(player_id) {
+                player.enter_vehicle(vehicle_id.clone());
+                
+                // Notify all players
+                let msg = ServerMessage::PlayerEnteredVehicle {
+                    player_id: player_id.to_string(),
+                    vehicle_id: vehicle_id.clone(),
+                };
+                state.players.broadcast_to_all(&msg).await;
+                
+                // Update vehicle ownership
+                if let Some(mut obj) = state.dynamic_objects.get_object_mut(&vehicle_id) {
+                    obj.current_driver = Some(player_id.to_string());
+                }
+            }
         }
-    }
-    
-    Ok(())
-}
+        
+        ClientMessage::ExitVehicle { exit_position } => {
+            // Get vehicle ID and calculate exit position
+            let (vehicle_id, actual_exit_pos) = if let Some(player) = state.players.get_player(player_id) {
+                if let Some(vid) = &player.current_vehicle_id {
+                    let exit_pos = if let Some(pos) = exit_position {
+                        Position { x: pos.x, y: pos.y, z: pos.z }
+                    } else {
+                        // Calculate exit position based on vehicle
+                        if let Some(vehicle) = state.dynamic_objects.get_object(vid) {
+                            Position {
+                                x: vehicle.position.x + 3.0,
+                                y: vehicle.position.y + 1.0,
+                                z: vehicle.position.z,
+                           

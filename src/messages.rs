@@ -50,6 +50,31 @@ pub enum ClientMessage {
         force: Velocity, // Reuse Velocity for force vector
         point: Position, // Contact point relative to object
     },
+    PickupWeapon {
+        weapon_id: String,
+    },
+    DropWeapon {
+        weapon_type: String,
+        position: Position,
+    },
+    FireWeapon {
+        weapon_type: String,
+        origin: Position,
+        direction: Position, // Using Position for direction vector
+        weapon_id: Option<String>,
+    },
+    WeaponSwitch {
+        weapon_type: String,
+    },
+    WeaponReload {
+        weapon_type: String,
+    },
+    ProjectileHit {
+        projectile_id: String,
+        hit_type: String, // "player", "vehicle", "terrain"
+        hit_id: Option<String>, // Player or vehicle ID if applicable
+        position: Position,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +143,67 @@ pub enum ServerMessage {
     PlatformUpdate {
         platform_id: String,
         position: Position,
+    },
+    WeaponSpawn {
+        weapon_id: String,
+        weapon_type: String,
+        position: Position,
+    },
+    WeaponPickup {
+        player_id: String,
+        weapon_id: String,
+        weapon_type: String,
+    },
+    WeaponDrop {
+        player_id: String,
+        weapon_id: String,
+        position: Position,
+    },
+    WeaponFire {
+        player_id: String,
+        weapon_type: String,
+        origin: Position,
+        direction: Position,
+        projectile_id: String,
+    },
+    ProjectileUpdate {
+        projectile_id: String,
+        position: Position,
+        velocity: Velocity,
+    },
+    ProjectileHit {
+        projectile_id: String,
+        position: Position,
+        hit_type: String,
+        explosion_type: Option<String>,
+    },
+    PlayerHealthUpdate {
+        player_id: String,
+        health: f32,
+        max_health: f32,
+        armor: f32,
+    },
+    PlayerDamaged {
+        player_id: String,
+        damage: f32,
+        damage_type: String,
+        attacker_id: Option<String>,
+    },
+    PlayerKilled {
+        player_id: String,
+        killer_id: Option<String>,
+        death_type: String,
+    },
+    PlayerRespawned {
+        player_id: String,
+        position: Position,
+        health: f32,
+    },
+    ExplosionCreated {
+        position: Position,
+        explosion_type: String,
+        radius: f32,
+        damage: f32,
     },
 }
 

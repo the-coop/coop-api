@@ -6,6 +6,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
+pub struct VehicleControls {
+    pub forward: bool,
+    pub backward: bool,
+    pub left: bool,
+    pub right: bool,
+    pub brake: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct DynamicObject {
     pub id: String,
     pub object_type: String,
@@ -19,16 +29,25 @@ pub struct DynamicObject {
     pub owner_id: Option<Uuid>, // Current owner
     pub ownership_expires: Option<Instant>, // When ownership expires
     pub spawn_time: Instant, // When the object was spawned
+    pub current_driver: Option<String>, // Player ID of current driver
+    pub controls: Option<VehicleControls>, // Current control inputs
+    pub needs_physics_update: bool, // Flag for physics system
 }
 
 impl DynamicObject {
-    pub fn new(object_type: String, world_position: Vector3<f64>, scale: f32) -> Self {
+    pub fn new(
+        id: String,
+        object_type: String,
+        position: nalgebra::Vector3<f32>,
+        rotation: nalgebra::UnitQuaternion<f32>,
+        scale: f32,
+    ) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
+            id,
             object_type,
-            position: Vector3::zeros(), // Start at local origin
-            world_origin: world_position, // Set world origin to spawn position
-            rotation: UnitQuaternion::identity(),
+            position,
+            world_origin: Vector3::zeros(), // Default to zero, can be set explicitly
+            rotation,
             velocity: Vector3::zeros(),
             scale,
             body_handle: None,
@@ -36,6 +55,9 @@ impl DynamicObject {
             owner_id: None,
             ownership_expires: None,
             spawn_time: Instant::now(), // Track when object was created
+            current_driver: None,
+            controls: None,
+            needs_physics_update: false,
         }
     }
 
@@ -142,6 +164,9 @@ impl DynamicObjectManager {
             ownership_expires: None,
             spawn_time: Instant::now(), // Track when object was created
             scale,
+            current_driver: None,
+            controls: None,
+            needs_physics_update: false,
         };
         
         self.objects.insert(object_id.to_string(), object);
