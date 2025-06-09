@@ -786,4 +786,3 @@ async fn handle_client_message(
                                 x: vehicle.position.x + 3.0,
                                 y: vehicle.position.y + 1.0,
                                 z: vehicle.position.z,
-                           

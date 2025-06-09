@@ -75,6 +75,15 @@ pub enum ClientMessage {
         hit_id: Option<String>, // Player or vehicle ID if applicable
         position: Position,
     },
+    LockOnUpdate {
+        lock_data: LockOnData,
+    },
+    CountermeasureDeploy {
+        vehicle_id: String,
+        countermeasure_type: String, // "chaff" or "flares"
+        position: Position,
+        velocity: Velocity,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +214,17 @@ pub enum ServerMessage {
         radius: f32,
         damage: f32,
     },
+    LockOnUpdate {
+        player_id: String,
+        lock_data: LockOnData,
+    },
+    CountermeasureDeploy {
+        player_id: String,
+        vehicle_id: String,
+        countermeasure_type: String,
+        position: Position,
+        velocity: Velocity,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -247,4 +267,12 @@ pub struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockOnData {
+    pub has_target: bool,
+    pub target_id: Option<String>,
+    pub is_locked: bool,
+    pub lock_progress: f32,
 }
