@@ -552,12 +552,21 @@ async fn handle_client_message(
             let vel_clone = velocity.clone();
             
             // Update player state and physics body
-            let player_is_swimming = {
+            let (player_is_swimming, player_is_grounded) = {
                 let mut state_write = state.write().await;
                 
                 // First, extract all needed data from player
                 let player_data = {
-                    if let Some(player) = state_write.players.get_player(player_id) {
+                    if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+                        // Update player state
+                        player.position = nalgebra::Vector3::new(pos_clone.x, pos_clone.y, pos_clone.z);
+                        player.rotation = nalgebra::UnitQuaternion::new_normalize(
+                            nalgebra::Quaternion::new(rot_clone.w, rot_clone.x, rot_clone.y, rot_clone.z)
+                        );
+                        player.velocity = nalgebra::Vector3::new(vel_clone.x, vel_clone.y, vel_clone.z);
+                        player.is_grounded = is_grounded;
+                        player.is_swimming = is_swimming;
+                        
                         let body_handle = player.body_handle;
                         let world_pos = nalgebra::Vector3::new(
                             pos_clone.x + player.world_origin.x as f32,
@@ -565,16 +574,15 @@ async fn handle_client_message(
                             pos_clone.z + player.world_origin.z as f32,
                         );
                         let player_velocity = nalgebra::Vector3::new(vel_clone.x, vel_clone.y, vel_clone.z);
-                        let final_swimming_state = is_swimming;
                         
-                        Some((body_handle, world_pos, player_velocity, final_swimming_state))
+                        Some((body_handle, world_pos, player_velocity, is_swimming, is_grounded))
                     } else {
                         None
                     }
-                }; // The mutable borrow of player is dropped here
+                };
                 
                 // Check if we got player data
-                let (body_handle, world_pos, player_velocity, final_swimming_state) = match player_data {
+                let (body_handle, world_pos, player_velocity, final_swimming_state, final_grounded_state) = match player_data {
                     Some(data) => data,
                     None => {
                         error!("Player {} not found for update", player_id);
@@ -595,23 +603,18 @@ async fn handle_client_message(
                     }
                 }
                 
-                // Update swimming state in player using a separate access
-                if let Some(mut player) = state_write.players.get_player_mut(player_id) {
-                    player.is_swimming = final_swimming_state;
-                }
-                
-                // Return the final swimming state
-                final_swimming_state
-            }; // state_write is dropped here
+                // Return the final states
+                (final_swimming_state, final_grounded_state)
+            };
             
-            // Broadcast player state to all other players with swimming state
+            // Broadcast player state to all other players with complete state
             let update_msg = ServerMessage::PlayerState {
                 player_id: player_id.to_string(),
                 position,
                 rotation,
                 velocity,
-                is_grounded,
-                is_swimming: player_is_swimming, // Use the final swimming state
+                is_grounded: player_is_grounded,
+                is_swimming: player_is_swimming,
             };
             
             let state_read = state.read().await;

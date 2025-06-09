@@ -96,7 +96,26 @@ impl Player {
                 self.world_origin.x += self.position.x as f64;
                 self.world_origin.y += self.position.y as f64;
                 self.world_origin.z += self.position.z as f64;
+                
+                // Reset position to origin
                 self.position = Vector3::zeros();
+                
+                // Notify client of origin update
+                let origin_msg = ServerMessage::OriginUpdate {
+                    origin: Position {
+                        x: self.world_origin.x as f32,
+                        y: self.world_origin.y as f32,
+                        z: self.world_origin.z as f32,
+                    }
+                };
+                
+                // Send origin update asynchronously
+                let sender = self.sender.clone();
+                tokio::spawn(async move {
+                    if let Ok(json) = serde_json::to_string(&origin_msg) {
+                        let _ = sender.send(Message::Text(json));
+                    }
+                });
             }
         }
     }
@@ -281,13 +300,26 @@ impl PlayerManager {
             .filter(|entry| *entry.key() != exclude_id)
             .map(|entry| {
                 let player = entry.value();
-                let world_pos = player.get_world_position();
+                // Send position relative to the requesting player's origin
+                let relative_pos = if let Some(requester) = self.players.get(&exclude_id) {
+                    // Calculate position relative to requester's origin
+                    let world_pos = player.get_world_position();
+                    let requester_origin = requester.world_origin;
+                    Vector3::new(
+                        (world_pos.x - requester_origin.x) as f32,
+                        (world_pos.y - requester_origin.y) as f32,
+                        (world_pos.z - requester_origin.z) as f32,
+                    )
+                } else {
+                    player.position
+                };
+                
                 PlayerInfo {
                     id: player.id.to_string(),
                     position: Position {
-                        x: world_pos.x as f32,  // Convert back to f32 for client
-                        y: world_pos.y as f32,
-                        z: world_pos.z as f32,
+                        x: relative_pos.x,
+                        y: relative_pos.y,
+                        z: relative_pos.z,
                     },
                     rotation: Some(Rotation {
                         x: player.rotation.i,

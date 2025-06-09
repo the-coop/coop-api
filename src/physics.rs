@@ -32,7 +32,7 @@ impl PhysicsWorld {
         let collider_set = ColliderSet::new();
 
         Self {
-            gravity: Vector3::new(0.0, -250.0, 0.0),
+            gravity: Vector3::new(0.0, -250.0, 0.0), // Match client gravity center
             rigid_body_set,
             collider_set,
             integration_parameters,
@@ -59,8 +59,8 @@ impl PhysicsWorld {
         }
         
         // Apply gravity to all dynamic bodies (including dynamic platforms)
-        let gravity_center = self.gravity;
-        let gravity_strength = 25.0;
+        let gravity_center = self.gravity; // This is the planet center at y=-250
+        let gravity_strength = 25.0; // Match client gravity strength
         
         // Log dynamic platform count for debugging
         let dynamic_platform_count = self.dynamic_platforms.len();
