@@ -545,14 +545,14 @@ async fn handle_client_message(
     msg: ClientMessage,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match msg {
-        ClientMessage::PlayerUpdate { position, rotation, velocity, is_grounded, is_swimming } => {
+        ClientMessage::PlayerUpdate { position, rotation, velocity, is_grounded, is_swimming: _ } => {
             // Clone values for the async block
             let pos_clone = position.clone();
             let rot_clone = rotation.clone();
             let vel_clone = velocity.clone();
             
             // Update player state and physics body
-            let (player_is_swimming, player_is_grounded, player_world_origin) = {
+            let (player_is_swimming, player_is_grounded, _player_world_origin) = {
                 let mut state_write = state.write().await;
                 
                 // First, extract all needed data from player
