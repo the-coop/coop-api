@@ -166,12 +166,14 @@ impl PhysicsWorld {
         density: f32,
     ) -> ColliderHandle {
         let collider = ColliderBuilder::ball(radius)
-            .density(density * 0.5)  // Keep lighter weight
-            .friction(1.2)           // Slightly higher friction
-            .restitution(0.2)        // Lower restitution to reduce bouncing
+            .density(density * 0.5)
+            .friction(1.2)
+            .restitution(0.2)
             .active_collision_types(ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_FIXED)
-            .solver_groups(InteractionGroups::all()) // Ensure collision with all groups
-            .collision_groups(InteractionGroups::all()) // Ensure detection with all groups
+            .solver_groups(InteractionGroups::all())
+            .collision_groups(InteractionGroups::all())
+            // Add contact force events to ensure collisions are detected
+            .active_events(ActiveEvents::CONTACT_FORCE_EVENTS)
             .build();
         self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
     }

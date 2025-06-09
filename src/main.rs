@@ -552,7 +552,7 @@ async fn handle_client_message(
             let vel_clone = velocity.clone();
             
             // Update player state and physics body
-            let (player_is_swimming, player_is_grounded) = {
+            let (player_is_swimming, player_is_grounded, player_world_origin) = {
                 let mut state_write = state.write().await;
                 
                 // First, extract all needed data from player
@@ -565,7 +565,6 @@ async fn handle_client_message(
                         );
                         player.velocity = nalgebra::Vector3::new(vel_clone.x, vel_clone.y, vel_clone.z);
                         player.is_grounded = is_grounded;
-                        player.is_swimming = is_swimming;
                         
                         let body_handle = player.body_handle;
                         let world_pos = nalgebra::Vector3::new(
@@ -574,21 +573,30 @@ async fn handle_client_message(
                             pos_clone.z + player.world_origin.z as f32,
                         );
                         let player_velocity = nalgebra::Vector3::new(vel_clone.x, vel_clone.y, vel_clone.z);
+                        let world_origin = player.world_origin.clone();
                         
-                        Some((body_handle, world_pos, player_velocity, is_swimming, is_grounded))
+                        Some((body_handle, world_pos, player_velocity, world_origin))
                     } else {
                         None
                     }
                 };
                 
                 // Check if we got player data
-                let (body_handle, world_pos, player_velocity, final_swimming_state, final_grounded_state) = match player_data {
+                let (body_handle, world_pos, player_velocity, world_origin) = match player_data {
                     Some(data) => data,
                     None => {
                         error!("Player {} not found for update", player_id);
                         return Ok(());
                     }
                 };
+                
+                // Check swimming state based on physics world position
+                let actual_swimming = state_write.physics.world.is_position_in_water(&world_pos);
+                
+                // Update player swimming state with physics check
+                if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+                    player.is_swimming = actual_swimming;
+                }
                 
                 // Now update physics body if we have a handle
                 if let Some(body_handle) = body_handle {
@@ -603,8 +611,8 @@ async fn handle_client_message(
                     }
                 }
                 
-                // Return the final states
-                (final_swimming_state, final_grounded_state)
+                // Return the actual states based on physics
+                (actual_swimming, is_grounded, world_origin)
             };
             
             // Broadcast player state to all other players with complete state
@@ -614,7 +622,7 @@ async fn handle_client_message(
                 rotation,
                 velocity,
                 is_grounded: player_is_grounded,
-                is_swimming: player_is_swimming,
+                is_swimming: player_is_swimming, // Use server-verified swimming state
             };
             
             let state_read = state.read().await;

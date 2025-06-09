@@ -256,6 +256,12 @@ pub struct PlayerInfo {
     pub position: Position,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rotation: Option<Rotation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub velocity: Option<Velocity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_grounded: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_swimming: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

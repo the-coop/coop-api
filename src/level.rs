@@ -328,6 +328,10 @@ impl Level {
             let collider = ColliderBuilder::cuboid(half_extents.x, half_extents.y, half_extents.z)
                 .friction(12.0)
                 .restitution(0.01)
+                // Ensure kinematic platforms collide with everything
+                .active_collision_types(ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_FIXED)
+                .solver_groups(InteractionGroups::all())
+                .collision_groups(InteractionGroups::all())
                 .build();
             physics.collider_set.insert_with_parent(collider, body, &mut physics.rigid_body_set);
         }

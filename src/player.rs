@@ -327,6 +327,13 @@ impl PlayerManager {
                         z: player.rotation.k,
                         w: player.rotation.w,
                     }),
+                    velocity: Some(Velocity {
+                        x: player.velocity.x,
+                        y: player.velocity.y,
+                        z: player.velocity.z,
+                    }),
+                    is_grounded: Some(player.is_grounded),
+                    is_swimming: Some(player.is_swimming),
                 }
             })
             .collect()
