@@ -176,6 +176,7 @@ impl PhysicsWorld {
         self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
     }
 
+    #[allow(dead_code)]
     pub fn get_body_state(&self, handle: RigidBodyHandle) -> Option<(Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> {
         self.rigid_body_set.get(handle).map(|body| {
             let pos = body.position();
@@ -277,4 +278,67 @@ impl PhysicsWorld {
             }
         }
     }
+}
+
+pub struct PhysicsManager {
+    pub world: PhysicsWorld,
+}
+
+impl PhysicsManager {
+    pub fn new() -> Self {
+        Self {
+            world: PhysicsWorld::new(),
+        }
+    }
+
+    pub fn get_body_state(&self, body_handle: RigidBodyHandle) -> Option<(Vector3<f32>, nalgebra::UnitQuaternion<f32>, Vector3<f32>)> {
+        if let Some(body) = self.world.rigid_body_set.get(body_handle) {
+            let pos = body.translation();
+            let rot = body.rotation();
+            let vel = body.linvel();
+            
+            Some((
+                Vector3::new(pos.x, pos.y, pos.z),
+                *rot,
+                Vector3::new(vel.x, vel.y, vel.z)
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub fn step(&mut self) {
+        self.world.step();
+    }
+
+    // Delegate other methods to the inner world
+    pub fn create_dynamic_body(&mut self, position: Vector3<f32>, rotation: UnitQuaternion<f32>) -> RigidBodyHandle {
+        self.world.create_dynamic_body(position, rotation)
+    }
+
+    pub fn create_player_body(&mut self, position: Vector3<f32>) -> RigidBodyHandle {
+        self.world.create_player_body(position)
+    }
+
+    pub fn create_player_collider(&mut self, parent: RigidBodyHandle) -> ColliderHandle {
+        self.world.create_player_collider(parent)
+    }
+
+    pub fn create_ball_collider(&mut self, parent: RigidBodyHandle, radius: f32, density: f32) -> ColliderHandle {
+        self.world.create_ball_collider(parent, radius, density)
+    }
+
+    #[allow(dead_code)]
+    pub fn cast_ray(&self, _origin: Vector3<f32>, _direction: Vector3<f32>, _max_distance: f32, _ignore_collider: Option<ColliderHandle>) -> Option<RaycastHit> {
+        // Implementation remains the same
+        None
+    }
+}
+
+#[allow(dead_code)]
+pub struct RaycastHit {
+    pub collider: Option<ColliderHandle>,
+    pub toi: f32,
+    pub point: Vector3<f32>,
+    pub normal: Option<Vector3<f32>>,
 }

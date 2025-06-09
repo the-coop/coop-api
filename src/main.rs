@@ -30,9 +30,8 @@ use dynamic_objects::DynamicObjectManager;
 use game_state::AppState;
 use level::Level;
 use messages::{ClientMessage, ServerMessage, Position, Rotation, Velocity};
-use physics::PhysicsWorld;
+use physics::{PhysicsWorld, PhysicsManager};
 use player::PlayerManager;
-use projectiles::{Projectile, ProjectileManager};
 
 #[tokio::main]
 async fn main() {
@@ -96,10 +95,9 @@ async fn main() {
 
     let state = Arc::new(RwLock::new(AppState {
         players: PlayerManager::new(),
-        physics,
+        physics: PhysicsManager::new(),
         dynamic_objects,
         level,
-        projectiles: Arc::new(ProjectileManager::new()),
     }));
 
     // Spawn physics update loop
@@ -132,13 +130,13 @@ async fn main() {
                     if let (Some(body), Some(_collider)) = (body_handle, collider_handle) {
                         // Extract mutable references to all components first
                         let physics = &mut state.physics;
-                        physics.rigid_body_set.remove(
+                        physics.world.rigid_body_set.remove(
                             body,
-                            &mut physics.island_manager,
-                            &mut physics.collider_set,
-                            &mut physics.impulse_joint_set,
-                            &mut physics.multibody_joint_set,
-                            true,
+                            &mut physics.world.island_manager,
+                            &mut physics.world.collider_set,
+                            &mut physics.world.impulse_joint_set,
+                            &mut physics.world.multibody_joint_set,
+                            true
                         );
                     }
                     
@@ -157,7 +155,7 @@ async fn main() {
             
             // Update moving platforms
             let elapsed = start_time.elapsed().as_secs_f32();
-            state.physics.update_moving_platforms(elapsed);
+            state.physics.world.update_moving_platforms(elapsed);
             
             // Broadcast moving platform positions every 50ms (20Hz)
             let now = std::time::Instant::now();
@@ -165,8 +163,8 @@ async fn main() {
                 last_platform_broadcast = now;
                 
                 // Get platform positions from physics
-                for (i, (handle, _initial_x, _properties)) in state.physics.moving_platforms.iter().enumerate() {
-                    if let Some(body) = state.physics.rigid_body_set.get(*handle) {
+                for (i, (handle, _initial_x, _properties)) in state.physics.world.moving_platforms.iter().enumerate() {
+                    if let Some(body) = state.physics.world.rigid_body_set.get(*handle) {
                         let pos = body.translation();
                         
                         // Broadcast platform position to all players
@@ -192,8 +190,8 @@ async fn main() {
             // Log every 60 frames (1 second)
             frame_count += 1;
             if frame_count % 60 == 0 {
-                let body_count = state.physics.rigid_body_set.len();
-                let dynamic_count = state.physics.rigid_body_set.iter()
+                let body_count = state.physics.world.rigid_body_set.len();
+                let dynamic_count = state.physics.world.rigid_body_set.iter()
                     .filter(|(_, b)| b.is_dynamic())
                     .count();
                 
@@ -202,7 +200,7 @@ async fn main() {
                     let id = entry.key();
                     let obj = entry.value();
                     if let Some(handle) = obj.body_handle {
-                        if let Some(body) = state.physics.rigid_body_set.get(handle) {
+                        if let Some(body) = state.physics.world.rigid_body_set.get(handle) {
                             let pos = body.translation();
                             let world_pos = obj.get_world_position();
                             debug!("Rock {} - physics: ({:.2}, {:.2}, {:.2}), world: ({:.2}, {:.2}, {:.2})", 
@@ -212,7 +210,7 @@ async fn main() {
                 }
                 
                 debug!("Physics update: {} bodies ({} dynamic), gravity at {:?}", 
-                    body_count, dynamic_count, state.physics.gravity);
+                    body_count, dynamic_count, state.physics.world.gravity);
             }
             
             // Update dynamic objects from physics
@@ -248,16 +246,13 @@ async fn main() {
                         if obj.body_handle.is_some() {
                             // Get fresh physics state for broadcast
                             if let Some(handle) = obj.body_handle {
-                                if let Some((pos, rot, vel)) = state.physics.get_body_state(handle) {
-                                    return Some((
-                                        obj.id.clone(),
-                                        Vector3::new(pos.x as f64, pos.y as f64, pos.z as f64), // Use physics position directly
-                                        rot,
-                                        vel
-                                    ));
-                                }
+                                state.physics.get_body_state(handle).map(|(_pos, rot, vel)| {
+                                    let world_pos = obj.get_world_position();
+                                    (obj.id.clone(), world_pos, rot, vel)
+                                })
+                            } else {
+                                None
                             }
-                            None
                         } else {
                             None
                         }
@@ -516,13 +511,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<RwLock<AppState>>) {
         if let (Some(body_handle), Some(_collider_handle)) = (body_handle, collider_handle) {
             // Get mutable references to all physics components we need
             let physics = &mut state_write.physics;
-            physics.rigid_body_set.remove(
+            physics.world.rigid_body_set.remove(
                 body_handle,
-                &mut physics.island_manager,
-                &mut physics.collider_set,
-                &mut physics.impulse_joint_set,
-                &mut physics.multibody_joint_set,
-                true,
+                &mut physics.world.island_manager,
+                &mut physics.world.collider_set,
+                &mut physics.world.impulse_joint_set,
+                &mut physics.world.multibody_joint_set,
+                true
             );
         }
         
@@ -562,22 +557,17 @@ async fn handle_client_message(
                 
                 // First, extract all needed data from player
                 let player_data = {
-                    if let Some(mut player) = state_write.players.get_player_mut(player_id) {
-                        player.update_state(pos_clone, rot_clone, vel_clone, is_grounded);
-                        player.is_swimming = is_swimming;
-                        
-                        // Check swimming state from physics
-                        let physics_swimming = player.check_swimming(&state_write.physics);
-                        
-                        // Extract all needed data
-                        let data = (
-                            player.body_handle,
-                            player.get_world_position(),
-                            player.velocity.clone(),
-                            physics_swimming || is_swimming // Trust client or physics
+                    if let Some(player) = state_write.players.get_player(player_id) {
+                        let body_handle = player.body_handle;
+                        let world_pos = nalgebra::Vector3::new(
+                            pos_clone.x + player.world_origin.x as f32,
+                            pos_clone.y + player.world_origin.y as f32,
+                            pos_clone.z + player.world_origin.z as f32,
                         );
+                        let player_velocity = nalgebra::Vector3::new(vel_clone.x, vel_clone.y, vel_clone.z);
+                        let final_swimming_state = is_swimming;
                         
-                        Some(data)
+                        Some((body_handle, world_pos, player_velocity, final_swimming_state))
                     } else {
                         None
                     }
@@ -586,21 +576,22 @@ async fn handle_client_message(
                 // Check if we got player data
                 let (body_handle, world_pos, player_velocity, final_swimming_state) = match player_data {
                     Some(data) => data,
-                    None => return Ok(()), // Player not found
+                    None => {
+                        error!("Player {} not found for update", player_id);
+                        return Ok(());
+                    }
                 };
                 
                 // Now update physics body if we have a handle
                 if let Some(body_handle) = body_handle {
-                    if let Some(body) = state_write.physics.rigid_body_set.get_mut(body_handle) {
-                        // Set position
-                        body.set_translation(Vector3::new(
-                            world_pos.x as f32,
-                            world_pos.y as f32,
-                            world_pos.z as f32
-                        ), true);
-                        
-                        // Set velocity for proper interpolation
+                    if let Some(body) = state_write.physics.world.rigid_body_set.get_mut(body_handle) {
+                        body.set_translation(world_pos, true);
                         body.set_linvel(player_velocity, true);
+                        
+                        let rotation = UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
+                            rot_clone.w, rot_clone.x, rot_clone.y, rot_clone.z
+                        ));
+                        body.set_rotation(rotation, true);
                     }
                 }
                 
@@ -646,143 +637,136 @@ async fn handle_client_message(
             };
             
             if is_owner {
-                // Player owns it, apply the push
-                let mut state_write = state.write().await;
+                // Player already owns object, extract body handle first
+                let body_handle = {
+                    let state_read = state.read().await;
+                    state_read.dynamic_objects.objects.get(&object_id)
+                        .and_then(|object_info| object_info.body_handle)
+                };
                 
-                if let Some(body_handle) = state_write.dynamic_objects.objects.get(&object_id)
-                    .and_then(|obj| obj.body_handle) {
-                    
-                    if let Some(body) = state_write.physics.rigid_body_set.get_mut(body_handle) {
+                // Now apply force with the extracted handle
+                if let Some(body_handle) = body_handle {
+                    let mut state_write = state.write().await;
+                    if let Some(body) = state_write.physics.world.rigid_body_set.get_mut(body_handle) {
                         let force_vec = Vector3::new(force.x, force.y, force.z);
-                        let point_vec = Vector3::new(point.x, point.y, point.z);
-                        
-                        // Check if this is likely a collision-based push (contact point is on surface)
-                        let is_collision_push = point_vec.magnitude() > 1.0; // Contact points from collisions are on rock surface
-                        
-                        let scaled_point = if is_collision_push {
-                            // For collision pushes, apply force more centrally
-                            point_vec * 0.2
-                        } else {
-                            // For targeted pushes (F key), allow more offset
-                            point_vec * 0.5
-                        };
-                        
-                        let world_point = body.position().transform_point(&nalgebra::Point3::from(scaled_point));
-                        
-                        // Scale force based on push type
-                        let force_multiplier = if is_collision_push {
-                            1.5 // Gentler for collisions
-                        } else {
-                            2.0 // Stronger for targeted pushes
-                        };
-                        
-                        body.apply_impulse_at_point(force_vec * force_multiplier, world_point, true);
-                        
-                        println!("Player {} pushed owned object {} with force {:?} (collision: {})", 
-                            player_id, object_id, force_vec.magnitude(), is_collision_push);
+                        let point_vec = nalgebra::Point3::new(point.x, point.y, point.z);
+                        body.add_force_at_point(force_vec, point_vec, true);
+                        println!("Applied force to owned object {}: {:?}", object_id, force_vec);
                     }
                 }
             } else {
-                // Try to acquire ownership
+                // Grant ownership for 5 seconds, then apply force
                 let mut state_write = state.write().await;
+                state_write.dynamic_objects.grant_ownership(&object_id, player_id, Duration::from_secs(5));
                 
-                // Check if object is owned by someone else
-                let current_owner = state_write.dynamic_objects.objects.get(&object_id)
-                    .and_then(|obj| obj.owner_id);
-                
-                let can_take_ownership = match current_owner {
-                    None => true, // No owner
-                    Some(owner) if owner == player_id => true, // Already owns it
-                    Some(_) => {
-                        // Check if ownership expired
-                        state_write.dynamic_objects.objects.get(&object_id)
-                            .and_then(|obj| obj.ownership_expires)
-                            .map(|expires| expires <= std::time::Instant::now())
-                            .unwrap_or(true)
-                    }
-                };
-                
-                if can_take_ownership {
-                    // Grant ownership and apply push
-                    if state_write.dynamic_objects.grant_ownership(&object_id, player_id, Duration::from_millis(3000)) {
-                        println!("Player {} acquired ownership of object {}", player_id, object_id);
-                        
-                        // Apply the push immediately
-                        if let Some(body_handle) = state_write.dynamic_objects.objects.get(&object_id)
-                            .and_then(|obj| obj.body_handle) {
-                            
-                            if let Some(body) = state_write.physics.rigid_body_set.get_mut(body_handle) {
-                                let force_vec = Vector3::new(force.x, force.y, force.z);
-                                let point_vec = Vector3::new(point.x, point.y, point.z);
-                                
-                                let is_collision_push = point_vec.magnitude() > 1.0;
-                                
-                                let scaled_point = if is_collision_push {
-                                    point_vec * 0.2
-                                } else {
-                                    point_vec * 0.5
-                                };
-                                
-                                let world_point = body.position().transform_point(&nalgebra::Point3::from(scaled_point));
-                                
-                                let force_multiplier = if is_collision_push {
-                                    1.5
-                                } else {
-                                    2.0
-                                };
-                                
-                                body.apply_impulse_at_point(force_vec * force_multiplier, world_point, true);
-                                
-                                println!("Player {} pushed newly owned object {} with force {:?}", 
-                                    player_id, object_id, force_vec.magnitude());
-                            }
-                        }
-                        
-                        // Notify player of ownership
-                        let ownership_msg = ServerMessage::ObjectOwnershipGranted {
-                            object_id: object_id.clone(),
-                            player_id: player_id.to_string(),
-                            duration_ms: 3000,
-                        };
-                        
-                        if let Some(player) = state_write.players.get_player(player_id) {
-                            player.send_message(&ownership_msg).await;
-                        }
-                    }
-                } else {
-                    println!("Player {} cannot push object {} - owned by another player", player_id, object_id);
+                // Send ownership message
+                if let Some(player) = state_write.players.get_player(player_id) {
+                    let ownership_msg = ServerMessage::ObjectOwnershipGranted {
+                        object_id: object_id.clone(),
+                        player_id: player_id.to_string(),
+                        duration_ms: 5000,
+                    };
+                    player.send_message(&ownership_msg).await;
                 }
-            }
-        }
-        ClientMessage::EnterVehicle { vehicle_id } => {
-            // Update player state
-            if let Some(mut player) = state.players.get_player_mut(player_id) {
-                player.enter_vehicle(vehicle_id.clone());
                 
-                // Notify all players
-                let msg = ServerMessage::PlayerEnteredVehicle {
-                    player_id: player_id.to_string(),
-                    vehicle_id: vehicle_id.clone(),
-                };
-                state.players.broadcast_to_all(&msg).await;
+                // Extract body handle
+                let body_handle = state_write.dynamic_objects.objects.get(&object_id)
+                    .and_then(|object_info| object_info.body_handle);
                 
-                // Update vehicle ownership
-                if let Some(mut obj) = state.dynamic_objects.get_object_mut(&vehicle_id) {
-                    obj.current_driver = Some(player_id.to_string());
+                // Apply force
+                if let Some(body_handle) = body_handle {
+                    if let Some(body) = state_write.physics.world.rigid_body_set.get_mut(body_handle) {
+                        let force_vec = Vector3::new(force.x, force.y, force.z);
+                        let point_vec = nalgebra::Point3::new(point.x, point.y, point.z);
+                        body.add_force_at_point(force_vec, point_vec, true);
+                        println!("Applied force to newly owned object {}: {:?}", object_id, force_vec);
+                    }
                 }
             }
         }
         
+        ClientMessage::EnterVehicle { vehicle_id } => {
+            // Update player state
+            let state_write = state.write().await;
+            if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+                player.current_vehicle_id = Some(vehicle_id.clone());
+                info!("Player {} entered vehicle {}", player_id, vehicle_id);
+            }
+            
+            // Broadcast to other players
+            let enter_msg = ServerMessage::PlayerEnteredVehicle {
+                player_id: player_id.to_string(),
+                vehicle_id: vehicle_id,
+            };
+            state_write.players.broadcast_except(player_id, &enter_msg).await;
+        }
+        
         ClientMessage::ExitVehicle { exit_position } => {
             // Get vehicle ID and calculate exit position
-            let (vehicle_id, actual_exit_pos) = if let Some(player) = state.players.get_player(player_id) {
-                if let Some(vid) = &player.current_vehicle_id {
-                    let exit_pos = if let Some(pos) = exit_position {
-                        Position { x: pos.x, y: pos.y, z: pos.z }
+            let (vehicle_id, actual_exit_pos) = {
+                let state_read = state.read().await;
+                let data = if let Some(player) = state_read.players.get_player(player_id) {
+                    if let Some(vid) = &player.current_vehicle_id {
+                        let exit_pos = if let Some(pos) = exit_position {
+                            nalgebra::Vector3::new(pos.x, pos.y, pos.z)
+                        } else {
+                            nalgebra::Vector3::new(0.0, 0.0, 0.0)
+                        };
+                        (Some(vid.clone()), exit_pos)
                     } else {
-                        // Calculate exit position based on vehicle
-                        if let Some(vehicle) = state.dynamic_objects.get_object(vid) {
-                            Position {
-                                x: vehicle.position.x + 3.0,
-                                y: vehicle.position.y + 1.0,
-                                z: vehicle.position.z,
+                        (None, nalgebra::Vector3::new(0.0, 0.0, 0.0))
+                    }
+                } else {
+                    (None, nalgebra::Vector3::new(0.0, 0.0, 0.0))
+                };
+                data
+            };
+            
+            if let Some(vehicle_id) = vehicle_id {
+                // Update player state
+                let mut state_write = state.write().await;
+                
+                // Extract body handle first
+                let body_handle = if let Some(player) = state_write.players.get_player(player_id) {
+                    player.body_handle
+                } else {
+                    None
+                };
+                
+                // Update player
+                if let Some(mut player) = state_write.players.get_player_mut(player_id) {
+                    player.current_vehicle_id = None;
+                    
+                    info!("Player {} exited vehicle {} at position {:?}", player_id, vehicle_id, actual_exit_pos);
+                }
+                
+                // Update player physics body position to exit position
+                if let Some(body_handle) = body_handle {
+                    if let Some(body) = state_write.physics.world.rigid_body_set.get_mut(body_handle) {
+                        body.set_translation(actual_exit_pos, true);
+                        body.set_linvel(Vector3::zeros(), true); // Stop player movement
+                    }
+                }
+                
+                // Broadcast to other players
+                let exit_msg = ServerMessage::PlayerExitedVehicle {
+                    player_id: player_id.to_string(),
+                    vehicle_id: vehicle_id,
+                    exit_position: Position {
+                        x: actual_exit_pos.x,
+                        y: actual_exit_pos.y,
+                        z: actual_exit_pos.z,
+                    },
+                };
+                state_write.players.broadcast_except(player_id, &exit_msg).await;
+            }
+        }
+        
+        // Handle other message types
+        _ => {
+            debug!("Unhandled message type: {:?}", msg);
+        }
+    }
+    
+    Ok(())
+}

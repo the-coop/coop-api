@@ -2,8 +2,8 @@ use crate::messages::{PlayerInfo, Position, Rotation, ServerMessage, Velocity};
 use crate::physics::PhysicsWorld;
 use axum::extract::ws::Message;
 use dashmap::DashMap;
-use nalgebra::Vector3;
-use rapier3d::prelude::*;
+use nalgebra::{Vector3, UnitQuaternion};
+use rapier3d::prelude::{RigidBodyHandle, ColliderHandle};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -11,25 +11,37 @@ use uuid::Uuid;
 pub struct Player {
     pub id: Uuid,
     pub position: Vector3<f32>,
-    pub rotation: nalgebra::UnitQuaternion<f32>,
+    pub rotation: UnitQuaternion<f32>,
+    #[allow(dead_code)]
     pub velocity: Vector3<f32>,
-    pub sender: mpsc::UnboundedSender<Message>,
     pub world_origin: Vector3<f64>,
+    #[allow(dead_code)]
     pub is_grounded: bool,
-    pub body_handle: Option<RigidBodyHandle>,  // Add physics body handle
-    pub collider_handle: Option<ColliderHandle>, // Add collider handle
     pub is_swimming: bool,
-    // Combat state
+    pub body_handle: Option<RigidBodyHandle>,
+    pub collider_handle: Option<ColliderHandle>,
+    pub sender: mpsc::UnboundedSender<axum::extract::ws::Message>,
+    #[allow(dead_code)]
     pub health: f32,
+    #[allow(dead_code)]
     pub max_health: f32,
+    #[allow(dead_code)]
     pub armor: f32,
+    #[allow(dead_code)]
     pub current_weapon: Option<String>,
+    #[allow(dead_code)]
     pub last_damage_time: std::time::Instant,
+    #[allow(dead_code)]
     pub is_dead: bool,
+    #[allow(dead_code)]
     pub respawn_time: Option<std::time::Instant>,
+    pub current_vehicle_id: Option<String>,
+    #[allow(dead_code)]
     pub relative_position: Option<Vector3<f32>>, // Position relative to vehicle
+    #[allow(dead_code)]
     pub relative_rotation: Option<nalgebra::UnitQuaternion<f32>>, // Rotation relative to vehicle
-    pub aim_rotation: Option<nalgebra::UnitQuaternion<f32>>, // Where player is aiming (world space)
+    #[allow(dead_code)]
+    pub aim_rotation: Option<nalgebra::UnitQuaternion<f32>>, // Where player is aiming
 }
 
 impl Player {
@@ -52,13 +64,15 @@ impl Player {
             last_damage_time: std::time::Instant::now(),
             is_dead: false,
             respawn_time: None,
+            current_vehicle_id: None,
             relative_position: None,
             relative_rotation: None,
             aim_rotation: None,
         }
     }
 
-    pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity, is_grounded: bool, is_swimming: bool) {
+    #[allow(dead_code)]
+    pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity, grounded: bool) {
         // If in vehicle, position is relative to vehicle
         if self.current_vehicle_id.is_some() {
             self.relative_position = Some(Vector3::new(pos.x, pos.y, pos.z));
@@ -73,8 +87,7 @@ impl Player {
                 rot.w, rot.x, rot.y, rot.z,
             ));
             self.velocity = Vector3::new(vel.x, vel.y, vel.z);
-            self.is_grounded = is_grounded;
-            self.is_swimming = is_swimming;
+            self.is_grounded = grounded;
             
             // Update floating origin if player moves too far from it
             let distance_from_origin = self.position.magnitude();
@@ -88,6 +101,7 @@ impl Player {
         }
     }
 
+    #[allow(dead_code)]
     pub fn check_swimming(&mut self, physics: &PhysicsWorld) -> bool {
         if let Some(body_handle) = self.body_handle {
             if let Some(body) = physics.rigid_body_set.get(body_handle) {
@@ -113,9 +127,10 @@ impl Player {
         }
     }
     
-    pub fn take_damage(&mut self, damage: f32, damage_type: &str, attacker_id: Option<String>) -> bool {
+    #[allow(dead_code)]
+    pub fn take_damage(&mut self, damage: f32, _damage_type: &str, _attacker_id: Option<Uuid>) {
         if self.is_dead {
-            return false;
+            return;
         }
         
         // Apply armor reduction
@@ -133,12 +148,10 @@ impl Player {
         if self.health <= 0.0 {
             self.is_dead = true;
             self.respawn_time = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
-            true // Player died
-        } else {
-            false
         }
     }
     
+    #[allow(dead_code)]
     pub fn respawn(&mut self, spawn_position: Vector3<f32>) {
         self.health = self.max_health;
         self.armor = 0.0;
@@ -151,25 +164,30 @@ impl Player {
         self.relative_rotation = None;
     }
     
+    #[allow(dead_code)]
     pub fn set_weapon(&mut self, weapon_type: String) {
         self.current_weapon = Some(weapon_type);
     }
     
+    #[allow(dead_code)]
     pub fn heal(&mut self, amount: f32) {
         self.health = (self.health + amount).min(self.max_health);
     }
     
+    #[allow(dead_code)]
     pub fn add_armor(&mut self, amount: f32) {
         self.armor = (self.armor + amount).min(100.0);
     }
-
+    
+    #[allow(dead_code)]
     pub fn enter_vehicle(&mut self, vehicle_id: String) {
         self.current_vehicle_id = Some(vehicle_id);
         self.relative_position = Some(Vector3::zeros());
         self.relative_rotation = Some(nalgebra::UnitQuaternion::identity());
         self.aim_rotation = Some(self.rotation); // Keep current aim
     }
-
+    
+    #[allow(dead_code)]
     pub fn exit_vehicle(&mut self, exit_position: Vector3<f32>) {
         self.current_vehicle_id = None;
         self.relative_position = None;
@@ -178,46 +196,51 @@ impl Player {
         self.position = exit_position;
         self.velocity = Vector3::zeros(); // Reset velocity on exit
     }
-
-    pub fn update_vehicle_state(&mut self, relative_pos: Position, relative_rot: Rotation, aim_rot: Rotation, is_grounded: bool) {
-        if self.current_vehicle_id.is_some() {
-            self.relative_position = Some(Vector3::new(relative_pos.x, relativePos.y, relativePos.z));
-            self.relative_rotation = Some(nalgebra::UnitQuaternion::new_normalize(
-                nalgebra::Quaternion::new(relativeRot.w, relativeRot.x, relativeRot.y, relativeRot.z)
-            ));
-            self.aim_rotation = Some(nalgebra::UnitQuaternion::new_normalize(
-                nalgebra::Quaternion::new(aimRot.w, aimRot.x, aimRot.y, aimRot.z)
-            ));
-            self.is_grounded = is_grounded;
-        }
+    
+    #[allow(dead_code)]
+    pub fn update_vehicle_state(&mut self, relative_pos: Position, relative_rot: Rotation, aim_rot: Rotation) {
+        self.relative_position = Some(Vector3::new(relative_pos.x, relative_pos.y, relative_pos.z));
+        
+        let rel_rot = nalgebra::Quaternion::new(relative_rot.w, relative_rot.x, relative_rot.y, relative_rot.z);
+        self.relative_rotation = Some(nalgebra::UnitQuaternion::new_normalize(rel_rot));
+        
+        let aim = nalgebra::Quaternion::new(aim_rot.w, aim_rot.x, aim_rot.y, aim_rot.z);
+        self.aim_rotation = Some(nalgebra::UnitQuaternion::new_normalize(aim));
     }
-
-    pub fn get_world_position_from_vehicle(&self, vehicle_position: &Vector3<f32>, vehicle_rotation: &nalgebra::UnitQuaternion<f32>) -> Vector3<f64> {
-        if let Some(rel_pos) = &self.relative_position {
-            // Transform relative position to world position
-            let world_rel_pos = vehicle_rotation * rel_pos;
+    
+    #[allow(dead_code)]
+    pub fn get_world_position_from_vehicle(&self, vehicle_position: &Vector3<f32>) -> Vector3<f32> {
+        if let Some(relative_pos) = &self.relative_position {
+            // Get world position by adding vehicle position to relative offset
             Vector3::new(
-                self.world_origin.x + vehicle_position.x as f64 + world_rel_pos.x as f64,
-                self.world_origin.y + vehicle_position.y as f64 + world_rel_pos.y as f64,
-                self.world_origin.z + vehicle_position.z as f64 + world_rel_pos.z as f64,
+                self.world_origin.x as f32 + vehicle_position.x + relative_pos.x,
+                self.world_origin.y as f32 + vehicle_position.y + relative_pos.y,
+                self.world_origin.z as f32 + vehicle_position.z + relative_pos.z,
             )
         } else {
-            self.get_world_position()
+            // No relative position set, return world origin
+            Vector3::new(
+                self.world_origin.x as f32,
+                self.world_origin.y as f32,
+                self.world_origin.z as f32,
+            )
         }
     }
-
+    
+    #[allow(dead_code)]
     pub fn get_world_rotation_from_vehicle(&self, vehicle_rotation: &nalgebra::UnitQuaternion<f32>) -> nalgebra::UnitQuaternion<f32> {
-        if let Some(rel_rot) = &self.relative_rotation {
+        if let Some(relative_rot) = &self.relative_rotation {
             // Combine vehicle rotation with relative rotation
-            vehicle_rotation * rel_rot
+            vehicle_rotation * relative_rot
         } else {
-            self.rotation
+            // No relative rotation set, return vehicle rotation
+            *vehicle_rotation
         }
     }
 }
 
 pub struct PlayerManager {
-    players: Arc<DashMap<Uuid, Player>>,
+    pub players: Arc<DashMap<Uuid, Player>>,
 }
 
 impl PlayerManager {
@@ -288,7 +311,7 @@ impl PlayerManager {
                         // Get sender's actual world position
                         let sender_world_pos = if let Some(sender) = self.players.get(&exclude_id) {
                             // Check if sender is in vehicle
-                            if let Some(vehicle_id) = &sender.current_vehicle_id {
+                            if let Some(_vehicle_id) = &sender.current_vehicle_id {
                                 // Need to get vehicle position to calculate world position
                                 // This would need access to dynamic objects, so we'll use stored position for now
                                 sender.get_world_position()
@@ -316,7 +339,7 @@ impl PlayerManager {
                         }
                     },
                     
-                    ServerMessage::VehiclePlayerState { player_id, vehicle_id, relative_position, relative_rotation, aim_rotation, is_grounded } => {
+                    ServerMessage::VehiclePlayerState { player_id: _, vehicle_id: _, relative_position: _, relative_rotation: _, aim_rotation: _, is_grounded: _ } => {
                         // For players in vehicles, pass through as-is since position is relative to vehicle
                         msg.clone()
                     },

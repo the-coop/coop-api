@@ -84,6 +84,12 @@ pub enum ClientMessage {
         position: Position,
         velocity: Velocity,
     },
+    EnterVehicle {
+        vehicle_id: String,
+    },
+    ExitVehicle {
+        exit_position: Option<Position>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +150,7 @@ pub enum ServerMessage {
     ObjectOwnershipGranted {
         object_id: String,
         player_id: String,
-        duration_ms: u32,
+        duration_ms: u64,
     },
     ObjectOwnershipRevoked {
         object_id: String,
@@ -224,6 +230,23 @@ pub enum ServerMessage {
         countermeasure_type: String,
         position: Position,
         velocity: Velocity,
+    },
+    PlayerEnteredVehicle {
+        player_id: String,
+        vehicle_id: String,
+    },
+    PlayerExitedVehicle {
+        player_id: String,
+        vehicle_id: String,
+        exit_position: Position,
+    },
+    VehiclePlayerState {
+        player_id: String,
+        vehicle_id: String,
+        relative_position: Position,
+        relative_rotation: Rotation,
+        aim_rotation: Rotation,
+        is_grounded: bool,
     },
 }
 

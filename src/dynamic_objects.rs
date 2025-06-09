@@ -1,12 +1,12 @@
-use crate::messages::{DynamicObjectInfo, Position, Rotation, ServerMessage};
-use dashmap::DashMap;
-use nalgebra::{UnitQuaternion, Vector3};
-use rapier3d::prelude::*;
-use std::sync::Arc;
+use nalgebra::{Vector3, UnitQuaternion};
+use rapier3d::prelude::{RigidBodyHandle, ColliderHandle};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+use dashmap::DashMap;
+use crate::messages::{Position, Rotation, DynamicObjectInfo, ServerMessage};
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct VehicleControls {
     pub forward: bool,
     pub backward: bool,
@@ -19,18 +19,22 @@ pub struct VehicleControls {
 pub struct DynamicObject {
     pub id: String,
     pub object_type: String,
-    pub position: Vector3<f32>,      // Local position relative to its origin
-    pub world_origin: Vector3<f64>,  // Object's floating origin in world space (double precision)
+    pub position: Vector3<f64>,
     pub rotation: UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub scale: f32,
-    pub body_handle: Option<RigidBodyHandle>, // Physics body handle
-    pub collider_handle: Option<ColliderHandle>, // Physics collider handle
-    pub owner_id: Option<Uuid>, // Current owner
-    pub ownership_expires: Option<Instant>, // When ownership expires
-    pub spawn_time: Instant, // When the object was spawned
+    pub body_handle: Option<RigidBodyHandle>,
+    pub collider_handle: Option<ColliderHandle>,
+    pub ownership_expires: Option<std::time::Instant>,
+    pub world_origin: Vector3<f64>,
+    pub owner_id: Option<Uuid>,
+    pub spawn_time: std::time::Instant,
+    pub owner_info: Option<OwnershipInfo>,
+    #[allow(dead_code)]
     pub current_driver: Option<String>, // Player ID of current driver
+    #[allow(dead_code)]
     pub controls: Option<VehicleControls>, // Current control inputs
+    #[allow(dead_code)]
     pub needs_physics_update: bool, // Flag for physics system
 }
 
@@ -38,23 +42,25 @@ impl DynamicObject {
     pub fn new(
         id: String,
         object_type: String,
-        position: nalgebra::Vector3<f32>,
-        rotation: nalgebra::UnitQuaternion<f32>,
+        position: Vector3<f64>,
+        body_handle: Option<RigidBodyHandle>,
+        collider_handle: Option<ColliderHandle>,
         scale: f32,
     ) -> Self {
         Self {
             id,
             object_type,
             position,
-            world_origin: Vector3::zeros(), // Default to zero, can be set explicitly
-            rotation,
+            rotation: UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             scale,
-            body_handle: None,
-            collider_handle: None,
-            owner_id: None,
+            body_handle,
+            collider_handle,
             ownership_expires: None,
-            spawn_time: Instant::now(), // Track when object was created
+            world_origin: Vector3::zeros(),
+            owner_id: None,
+            spawn_time: Instant::now(),
+            owner_info: None,
             current_driver: None,
             controls: None,
             needs_physics_update: false,
@@ -95,17 +101,19 @@ impl DynamicObject {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_owned_by(&self, player_id: Uuid) -> bool {
         if let (Some(owner), Some(expires)) = (self.owner_id, self.ownership_expires) {
-            owner == player_id && expires > Instant::now()
+            owner == player_id && expires > std::time::Instant::now()
         } else {
             false
         }
     }
 
+    #[allow(dead_code)]
     pub fn grant_ownership(&mut self, player_id: Uuid, duration: Duration) {
         self.owner_id = Some(player_id);
-        self.ownership_expires = Some(Instant::now() + duration);
+        self.ownership_expires = Some(std::time::Instant::now() + duration);
     }
 
     pub fn is_expired(&self, lifetime: Duration) -> bool {
@@ -114,63 +122,73 @@ impl DynamicObject {
 }
 
 pub struct DynamicObjectManager {
-    pub objects: Arc<DashMap<String, DynamicObject>>,
+    pub objects: DashMap<String, DynamicObject>,
+    next_id: u64,
 }
 
 impl DynamicObjectManager {
     pub fn new() -> Self {
         Self {
-            objects: Arc::new(DashMap::new()),
+            objects: DashMap::new(),
+            next_id: 0,
         }
     }
 
     pub fn spawn_rock_with_physics(
-        &self, 
-        world_position: Vector3<f64>, 
+        &mut self,
+        world_position: Vector3<f64>,
         body_handle: RigidBodyHandle,
         collider_handle: ColliderHandle,
-        scale: f32  // Add scale parameter
+        scale: f32,
     ) -> String {
-        let mut rock = DynamicObject::new("rock".to_string(), Vector3::zeros(), scale);
-        rock.world_origin = world_position; // Set the world origin
-        rock.position = Vector3::zeros(); // Local position starts at origin
-        rock.body_handle = Some(body_handle);
-        rock.collider_handle = Some(collider_handle);
-        rock.scale = scale; // Use the provided scale
-        let id = rock.id.clone();
-        self.objects.insert(id.clone(), rock);
-        id
+        let rock_id = format!("rock_{}", self.next_id);
+        self.next_id += 1;
+
+        let mut rock = DynamicObject::new(
+            rock_id.clone(),
+            "rock".to_string(),
+            Vector3::new(0.0, 0.0, 0.0), // Local position (0,0,0)
+            Some(body_handle),
+            Some(collider_handle),
+            scale,
+        );
+
+        rock.world_origin = world_position;
+
+        self.objects.insert(rock_id.clone(), rock);
+        rock_id
     }
 
     pub fn spawn_object(
         &mut self,
-        object_id: &str,
+        id: &str,
         object_type: String,
-        world_origin: nalgebra::Vector3<f64>,
+        world_origin: Vector3<f64>,
         body_handle: Option<RigidBodyHandle>,
         collider_handle: Option<ColliderHandle>,
         scale: f32,
     ) -> String {
         let object = DynamicObject {
-            id: object_id.to_string(),
+            id: id.to_string(),
             object_type,
-            world_origin,
-            position: nalgebra::Vector3::zeros(),
-            rotation: nalgebra::UnitQuaternion::identity(),
-            velocity: nalgebra::Vector3::zeros(),
+            position: Vector3::zeros(),
+            rotation: UnitQuaternion::identity(),
+            velocity: Vector3::zeros(),
+            scale,
             body_handle,
             collider_handle,
-            owner_id: None,
             ownership_expires: None,
-            spawn_time: Instant::now(), // Track when object was created
-            scale,
+            world_origin,
+            owner_id: None,
+            spawn_time: Instant::now(),
+            owner_info: None,
             current_driver: None,
             controls: None,
             needs_physics_update: false,
         };
-        
-        self.objects.insert(object_id.to_string(), object);
-        object_id.to_string()
+
+        self.objects.insert(id.to_string(), object);
+        id.to_string()
     }
 
     pub fn update_from_physics_world_position(
@@ -224,42 +242,55 @@ impl DynamicObjectManager {
         self.objects.iter()
     }
 
-    pub fn grant_ownership(&self, object_id: &str, player_id: Uuid, duration: Duration) -> bool {
-        if let Some(mut obj) = self.objects.get_mut(object_id) {
-            obj.grant_ownership(player_id, duration);
-            true
-        } else {
-            false
-        }
-    }
-
     pub fn check_ownership(&self, object_id: &str, player_id: Uuid) -> bool {
         if let Some(obj) = self.objects.get(object_id) {
-            obj.is_owned_by(player_id)
+            if let Some(owner_info) = &obj.owner_info {
+                owner_info.player_id == player_id && owner_info.expiry_time > Instant::now()
+            } else {
+                false
+            }
         } else {
             false
         }
     }
 
-    pub fn update_ownership_expiry(&self) {
-        let now = std::time::Instant::now();
-        let mut expired_objects = Vec::new();
+    pub fn grant_ownership(&mut self, object_id: &str, player_id: Uuid, duration: Duration) {
+        if let Some(mut obj) = self.objects.get_mut(object_id) {
+            obj.owner_info = Some(OwnershipInfo {
+                player_id,
+                expiry_time: Instant::now() + duration,
+            });
+        }
+    }
+
+    pub fn update_ownership_expiry(&mut self) {
+        let now = Instant::now();
         
-        // First pass: collect expired object IDs
         for entry in self.objects.iter() {
-            if let (Some(_owner_id), Some(expires)) = (entry.value().owner_id, entry.value().ownership_expires) {
+            if let (Some(_owner), Some(expires)) = (entry.value().owner_id, entry.value().ownership_expires) {
                 if expires <= now {
-                    expired_objects.push(entry.key().clone());
+                    // Ownership expired - need to get mutable access in a separate pass
+                    // Store keys to update
+                    continue;
                 }
             }
         }
         
-        // Second pass: update the expired objects
-        for object_id in expired_objects {
-            if let Some(mut obj) = self.objects.get_mut(&object_id) {
+        // Collect keys that need updates
+        let mut keys_to_update = Vec::new();
+        for entry in self.objects.iter() {
+            if let (Some(_owner), Some(expires)) = (entry.value().owner_id, entry.value().ownership_expires) {
+                if expires <= now {
+                    keys_to_update.push(entry.key().clone());
+                }
+            }
+        }
+        
+        // Update in separate pass
+        for key in keys_to_update {
+            if let Some(mut obj) = self.objects.get_mut(&key) {
                 obj.owner_id = None;
                 obj.ownership_expires = None;
-                tracing::debug!("Ownership expired for object {}", object_id);
             }
         }
     }
@@ -284,4 +315,15 @@ impl DynamicObjectManager {
         
         removed
     }
+
+    #[allow(dead_code)]
+    pub fn get_object(&self, id: &str) -> Option<dashmap::mapref::one::Ref<String, DynamicObject>> {
+        self.objects.get(id)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnershipInfo {
+    pub player_id: Uuid,
+    pub expiry_time: std::time::Instant,
 }
