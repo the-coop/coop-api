@@ -1,69 +1,54 @@
+use crate::messages::{DynamicObjectInfo, ServerMessage, Position, Rotation};
+use dashmap::DashMap;
 use nalgebra::{Vector3, UnitQuaternion};
 use rapier3d::prelude::{RigidBodyHandle, ColliderHandle};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
-use dashmap::DashMap;
-use crate::messages::{Position, Rotation, DynamicObjectInfo, ServerMessage};
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct VehicleControls {
-    pub forward: bool,
-    pub backward: bool,
-    pub left: bool,
-    pub right: bool,
-    pub brake: bool,
-}
 
 #[derive(Debug, Clone)]
 pub struct DynamicObject {
     pub id: String,
     pub object_type: String,
-    pub position: Vector3<f64>,
+    pub world_origin: Vector3<f64>,
+    pub position: Vector3<f32>,
     pub rotation: UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub scale: f32,
     pub body_handle: Option<RigidBodyHandle>,
+    #[allow(dead_code)]
     pub collider_handle: Option<ColliderHandle>,
-    pub ownership_expires: Option<std::time::Instant>,
-    pub world_origin: Vector3<f64>,
-    pub owner_id: Option<Uuid>,
-    pub spawn_time: std::time::Instant,
-    pub owner_info: Option<OwnershipInfo>,
+    pub owner: Option<(Uuid, Instant)>,
+    pub last_update: Instant,
     #[allow(dead_code)]
-    pub current_driver: Option<String>, // Player ID of current driver
-    #[allow(dead_code)]
-    pub controls: Option<VehicleControls>, // Current control inputs
-    #[allow(dead_code)]
-    pub needs_physics_update: bool, // Flag for physics system
+    pub created_at: Instant,
+
+    pub grabbed_by: Option<(Uuid, std::time::Instant)>, // Player ID and grab time
+    pub grab_offset: Option<Vector3<f32>>, // Offset from object center where grabbed
+    pub is_kinematic_ghost: bool, // Whether object is in kinematic grab mode
+    pub original_body_type: Option<String>, // Store original body type for restoration
 }
 
 impl DynamicObject {
-    pub fn new(
-        id: String,
-        object_type: String,
-        position: Vector3<f64>,
-        body_handle: Option<RigidBodyHandle>,
-        collider_handle: Option<ColliderHandle>,
-        scale: f32,
-    ) -> Self {
+    #[allow(dead_code)]
+    pub fn new(id: String, object_type: String, world_origin: Vector3<f64>, scale: f32) -> Self {
         Self {
             id,
             object_type,
-            position,
+            world_origin,
+            position: Vector3::zeros(),
             rotation: UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             scale,
-            body_handle,
-            collider_handle,
-            ownership_expires: None,
-            world_origin: Vector3::zeros(),
-            owner_id: None,
-            spawn_time: Instant::now(),
-            owner_info: None,
-            current_driver: None,
-            controls: None,
-            needs_physics_update: false,
+            body_handle: None,
+            collider_handle: None,
+            owner: None,
+            last_update: Instant::now(),
+            created_at: Instant::now(),
+
+            grabbed_by: None,
+            grab_offset: None,
+            is_kinematic_ghost: false,
+            original_body_type: None,
         }
     }
 
@@ -103,92 +88,132 @@ impl DynamicObject {
 
     #[allow(dead_code)]
     pub fn is_owned_by(&self, player_id: Uuid) -> bool {
-        if let (Some(owner), Some(expires)) = (self.owner_id, self.ownership_expires) {
-            owner == player_id && expires > std::time::Instant::now()
-        } else {
-            false
+        match &self.owner {
+            Some((id, _)) => *id == player_id,
+            None => false,
         }
     }
 
     #[allow(dead_code)]
     pub fn grant_ownership(&mut self, player_id: Uuid, duration: Duration) {
-        self.owner_id = Some(player_id);
-        self.ownership_expires = Some(std::time::Instant::now() + duration);
+        self.owner = Some((player_id, Instant::now() + duration));
     }
 
+    #[allow(dead_code)]
     pub fn is_expired(&self, lifetime: Duration) -> bool {
-        Instant::now().duration_since(self.spawn_time) > lifetime
+        self.created_at.elapsed() > lifetime
+    }
+
+    pub fn grab(&mut self, player_id: Uuid, grab_offset: Vector3<f32>) -> bool {
+        if self.grabbed_by.is_some() {
+            return false; // Already grabbed
+        }
+        
+        self.grabbed_by = Some((player_id, std::time::Instant::now()));
+        self.grab_offset = Some(grab_offset);
+        self.is_kinematic_ghost = true;
+        // Don't change physics body type here - that's handled by physics manager
+        
+        true
+    }
+    
+    pub fn release(&mut self) {
+        self.grabbed_by = None;
+        self.grab_offset = None;
+        self.is_kinematic_ghost = false;
+        self.original_body_type = None;
+    }
+    
+    pub fn is_grabbed(&self) -> bool {
+        self.grabbed_by.is_some()
+    }
+    
+    pub fn is_grabbed_by(&self, player_id: Uuid) -> bool {
+        match &self.grabbed_by {
+            Some((id, _)) => *id == player_id,
+            None => false,
+        }
+    }
+    
+    pub fn get_grab_duration(&self) -> Option<std::time::Duration> {
+        self.grabbed_by.as_ref().map(|(_, time)| time.elapsed())
     }
 }
 
 pub struct DynamicObjectManager {
     pub objects: DashMap<String, DynamicObject>,
-    next_id: u64,
 }
 
 impl DynamicObjectManager {
     pub fn new() -> Self {
         Self {
             objects: DashMap::new(),
-            next_id: 0,
         }
     }
 
-    pub fn spawn_rock_with_physics(
-        &mut self,
-        world_position: Vector3<f64>,
-        body_handle: RigidBodyHandle,
-        collider_handle: ColliderHandle,
-        scale: f32,
-    ) -> String {
-        let rock_id = format!("rock_{}", self.next_id);
-        self.next_id += 1;
-
-        let mut rock = DynamicObject::new(
-            rock_id.clone(),
-            "rock".to_string(),
-            Vector3::new(0.0, 0.0, 0.0), // Local position (0,0,0)
-            Some(body_handle),
-            Some(collider_handle),
-            scale,
-        );
-
-        rock.world_origin = world_position;
-
-        self.objects.insert(rock_id.clone(), rock);
-        rock_id
-    }
-
     pub fn spawn_object(
-        &mut self,
+        &mut self, 
         id: &str,
         object_type: String,
-        world_origin: Vector3<f64>,
+        world_position: Vector3<f64>,
         body_handle: Option<RigidBodyHandle>,
         collider_handle: Option<ColliderHandle>,
-        scale: f32,
-    ) -> String {
+        scale: f32
+    ) {
         let object = DynamicObject {
             id: id.to_string(),
             object_type,
+            world_origin: world_position,
             position: Vector3::zeros(),
             rotation: UnitQuaternion::identity(),
             velocity: Vector3::zeros(),
             scale,
             body_handle,
             collider_handle,
-            ownership_expires: None,
-            world_origin,
-            owner_id: None,
-            spawn_time: Instant::now(),
-            owner_info: None,
-            current_driver: None,
-            controls: None,
-            needs_physics_update: false,
-        };
+            owner: None,
+            last_update: Instant::now(),
+            created_at: Instant::now(),
 
+            grabbed_by: None,
+            grab_offset: None,
+            is_kinematic_ghost: false,
+            original_body_type: None,
+        };
+        
         self.objects.insert(id.to_string(), object);
-        id.to_string()
+    }
+
+    pub fn spawn_rock_with_physics(
+        &mut self, 
+        world_position: Vector3<f64>,
+        body_handle: RigidBodyHandle,
+        collider_handle: ColliderHandle,
+        scale: f32
+    ) -> String {
+        let id = format!("rock_{}", uuid::Uuid::new_v4());
+        
+        let object = DynamicObject {
+            id: id.clone(),
+            object_type: "rock".to_string(),
+            world_origin: world_position,
+            position: Vector3::zeros(),
+            rotation: UnitQuaternion::identity(),
+            velocity: Vector3::zeros(),
+            scale,
+            body_handle: Some(body_handle),
+            collider_handle: Some(collider_handle),
+            owner: None,
+            last_update: Instant::now(),
+            created_at: Instant::now(),
+
+            grabbed_by: None,
+            grab_offset: None,
+            is_kinematic_ghost: false,
+            original_body_type: None,
+        };
+        
+        self.objects.insert(id.clone(), object);
+        id
     }
 
     pub fn update_from_physics_world_position(
@@ -244,8 +269,88 @@ impl DynamicObjectManager {
 
     pub fn check_ownership(&self, object_id: &str, player_id: Uuid) -> bool {
         if let Some(obj) = self.objects.get(object_id) {
-            if let Some(owner_info) = &obj.owner_info {
-                owner_info.player_id == player_id && owner_info.expiry_time > Instant::now()
+            if let Some((owner_id, expiry)) = obj.owner {
+                return owner_id == player_id && Instant::now() < expiry;
+            }
+        }
+        false
+    }
+    
+    pub fn revoke_ownership(&self, object_id: &str) {
+        if let Some(mut obj) = self.objects.get_mut(object_id) {
+            obj.owner = None;
+            obj.grabbed_by = None;
+            obj.grab_offset = None;
+        }
+    }
+
+    pub fn grant_ownership(&mut self, object_id: &str, player_id: Uuid, duration: Duration) {
+        if let Some(mut obj) = self.objects.get_mut(object_id) {
+            obj.owner = Some((player_id, Instant::now() + duration));
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn update_ownership(&mut self) {
+        let now = Instant::now();
+        
+        // Check for expired ownership
+        let expired_objects: Vec<String> = self.objects.iter()
+            .filter_map(|entry| {
+                let obj = entry.value();
+                if let Some((_, expiry)) = obj.owner {
+                    if now >= expiry {
+                        return Some(obj.id.clone());
+                    }
+                }
+                None
+            })
+            .collect();
+        
+        // Revoke expired ownership
+        for object_id in expired_objects {
+            self.revoke_ownership(&object_id);
+        }
+    }
+    
+    pub fn remove_expired_objects(&self, lifetime: Duration) -> Vec<(String, Option<RigidBodyHandle>)> {
+        let now = Instant::now();
+        let mut expired = Vec::new();
+        
+        // Find expired objects
+        for entry in self.objects.iter() {
+            let obj = entry.value();
+            if now.duration_since(obj.created_at) > lifetime {
+                expired.push((obj.id.clone(), obj.body_handle));
+            }
+        }
+        
+        // Remove expired objects
+        for (id, _) in &expired {
+            self.objects.remove(id);
+        }
+        
+        expired
+    }
+
+    #[allow(dead_code)]
+    pub fn get_object(&self, id: &str) -> Option<dashmap::mapref::one::Ref<String, DynamicObject>> {
+        self.objects.get(id)
+    }
+    
+    pub fn grab_object(&mut self, object_id: &str, player_id: Uuid, grab_offset: Vector3<f32>) -> bool {
+        if let Some(mut obj) = self.objects.get_mut(object_id) {
+            obj.grab(player_id, grab_offset)
+        } else {
+            false
+        }
+    }
+    
+    pub fn release_object(&mut self, object_id: &str, player_id: Uuid) -> bool {
+        if let Some(mut obj) = self.objects.get_mut(object_id) {
+            if obj.is_grabbed_by(player_id) {
+                obj.release();
+                true
             } else {
                 false
             }
@@ -253,77 +358,49 @@ impl DynamicObjectManager {
             false
         }
     }
-
-    pub fn grant_ownership(&mut self, object_id: &str, player_id: Uuid, duration: Duration) {
+    
+    pub fn move_grabbed_object(&mut self, object_id: &str, player_id: Uuid, target_position: Vector3<f32>) -> bool {
         if let Some(mut obj) = self.objects.get_mut(object_id) {
-            obj.owner_info = Some(OwnershipInfo {
-                player_id,
-                expiry_time: Instant::now() + duration,
-            });
-        }
-    }
-
-    pub fn update_ownership_expiry(&mut self) {
-        let now = Instant::now();
-        
-        for entry in self.objects.iter() {
-            if let (Some(_owner), Some(expires)) = (entry.value().owner_id, entry.value().ownership_expires) {
-                if expires <= now {
-                    // Ownership expired - need to get mutable access in a separate pass
-                    // Store keys to update
-                    continue;
+            if obj.is_grabbed_by(player_id) {
+                // Calculate the object position based on grab offset
+                if let Some(grab_offset) = obj.grab_offset {
+                    obj.position = target_position - grab_offset;
+                    obj.last_update = std::time::Instant::now();
+                    return true;
                 }
             }
         }
-        
-        // Collect keys that need updates
-        let mut keys_to_update = Vec::new();
-        for entry in self.objects.iter() {
-            if let (Some(_owner), Some(expires)) = (entry.value().owner_id, entry.value().ownership_expires) {
-                if expires <= now {
-                    keys_to_update.push(entry.key().clone());
+        false
+    }
+    
+    pub fn get_grabbed_objects_by_player(&self, player_id: Uuid) -> Vec<String> {
+        self.objects.iter()
+            .filter_map(|entry| {
+                let obj = entry.value();
+                if obj.is_grabbed_by(player_id) {
+                    Some(entry.key().clone())
+                } else {
+                    None
                 }
-            }
-        }
+            })
+            .collect()
+    }
+    
+    pub fn force_release_all_by_player(&mut self, player_id: Uuid) {
+        let objects_to_release: Vec<String> = self.objects.iter()
+            .filter_map(|entry| {
+                let obj = entry.value();
+                if let Some((owner_id, _)) = obj.owner {
+                    if owner_id == player_id {
+                        return Some(obj.id.clone());
+                    }
+                }
+                None
+            })
+            .collect();
         
-        // Update in separate pass
-        for key in keys_to_update {
-            if let Some(mut obj) = self.objects.get_mut(&key) {
-                obj.owner_id = None;
-                obj.ownership_expires = None;
-            }
+        for object_id in objects_to_release {
+            self.release_object(&object_id, player_id);
         }
     }
-
-    pub fn remove_expired_objects(&self, lifetime: Duration) -> Vec<(String, Option<RigidBodyHandle>, Option<ColliderHandle>)> {
-        let mut expired_objects = Vec::new();
-        
-        // First pass: collect expired object IDs
-        for entry in self.objects.iter() {
-            if entry.value().is_expired(lifetime) {
-                expired_objects.push(entry.key().clone());
-            }
-        }
-        
-        // Second pass: remove the expired objects
-        let mut removed = Vec::new();
-        for object_id in expired_objects {
-            if let Some((_, obj)) = self.objects.remove(&object_id) {
-                removed.push((object_id, obj.body_handle, obj.collider_handle));
-            }
-        }
-        
-        removed
-    }
-
-    #[allow(dead_code)]
-    pub fn get_object(&self, id: &str) -> Option<dashmap::mapref::one::Ref<String, DynamicObject>> {
-        self.objects.get(id)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct OwnershipInfo {
-    pub player_id: Uuid,
-    pub expiry_time: std::time::Instant,
 }

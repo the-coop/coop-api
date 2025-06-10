@@ -8,43 +8,35 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
 pub struct Player {
     pub id: Uuid,
     pub position: Vector3<f32>,
     pub rotation: UnitQuaternion<f32>,
-    #[allow(dead_code)]
     pub velocity: Vector3<f32>,
-    pub world_origin: Vector3<f64>,
-    #[allow(dead_code)]
     pub is_grounded: bool,
     pub is_swimming: bool,
+    pub world_origin: Vector3<f64>,
+    pub sender: mpsc::UnboundedSender<Message>,
     pub body_handle: Option<RigidBodyHandle>,
     pub collider_handle: Option<ColliderHandle>,
-    pub sender: mpsc::UnboundedSender<axum::extract::ws::Message>,
-    #[allow(dead_code)]
+    pub current_vehicle_id: Option<String>,
+    pub relative_position: Option<Vector3<f32>>,
+    pub relative_rotation: Option<UnitQuaternion<f32>>,
+    pub aim_rotation: Option<UnitQuaternion<f32>>,
     pub health: f32,
-    #[allow(dead_code)]
+    pub armor: f32,
     pub max_health: f32,
     #[allow(dead_code)]
-    pub armor: f32,
-    #[allow(dead_code)]
-    pub current_weapon: Option<String>,
-    #[allow(dead_code)]
-    pub last_damage_time: std::time::Instant,
-    #[allow(dead_code)]
+    pub max_armor: f32,
     pub is_dead: bool,
-    #[allow(dead_code)]
+    pub last_damage_time: std::time::Instant,
     pub respawn_time: Option<std::time::Instant>,
-    pub current_vehicle_id: Option<String>,
-    #[allow(dead_code)]
-    pub relative_position: Option<Vector3<f32>>, // Position relative to vehicle
-    #[allow(dead_code)]
-    pub relative_rotation: Option<nalgebra::UnitQuaternion<f32>>, // Rotation relative to vehicle
-    #[allow(dead_code)]
-    pub aim_rotation: Option<nalgebra::UnitQuaternion<f32>>, // Where player is aiming
+    pub current_weapon: Option<String>,
 }
 
 impl Player {
+    #[allow(dead_code)]
     pub fn new(id: Uuid, position: Vector3<f32>, sender: mpsc::UnboundedSender<Message>) -> Self {
         Self {
             id,
@@ -60,6 +52,7 @@ impl Player {
             health: 100.0,
             max_health: 100.0,
             armor: 0.0,
+            max_armor: 100.0,
             current_weapon: None,
             last_damage_time: std::time::Instant::now(),
             is_dead: false,
@@ -269,8 +262,31 @@ impl PlayerManager {
         }
     }
 
-    pub fn add_player(&self, id: Uuid, position: Vector3<f32>, sender: mpsc::UnboundedSender<Message>) {
-        let player = Player::new(id, position, sender);
+    pub fn add_player(&mut self, id: Uuid, position: Vector3<f32>, sender: mpsc::UnboundedSender<Message>) {
+        let player = Player {
+            id,
+            position,
+            rotation: UnitQuaternion::identity(),
+            velocity: Vector3::zeros(),
+            is_grounded: false,
+            is_swimming: false,
+            world_origin: Vector3::new(0.0, 0.0, 0.0),
+            sender,
+            body_handle: None,
+            collider_handle: None,
+            current_vehicle_id: None,
+            relative_position: None,
+            relative_rotation: None,
+            aim_rotation: None,
+            health: 100.0,
+            armor: 0.0,
+            max_health: 100.0,
+            max_armor: 100.0,
+            is_dead: false,
+            last_damage_time: std::time::Instant::now(),
+            respawn_time: None,
+            current_weapon: None,
+        };
         self.players.insert(id, player);
     }
 
@@ -394,6 +410,32 @@ impl PlayerManager {
     pub async fn broadcast_to_all(&self, msg: &ServerMessage) {
         for entry in self.players.iter() {
             entry.value().send_message(msg).await;
+        }
+    }
+
+    pub fn respawn_player(&mut self, id: Uuid, spawn_position: Vector3<f32>) {
+        if let Some(mut player) = self.players.get_mut(&id) {
+            player.respawn(spawn_position);
+        }
+    }
+
+    pub fn damage_player(&mut self, id: Uuid, damage: f32, damage_type: &str, attacker_id: Option<Uuid>) -> bool {
+        if let Some(mut player) = self.players.get_mut(&id) {
+            player.take_damage(damage, damage_type, attacker_id);
+            return player.is_dead;
+        }
+        false
+    }
+
+    pub fn heal_player(&mut self, id: Uuid, amount: f32) {
+        if let Some(mut player) = self.players.get_mut(&id) {
+            player.heal(amount);
+        }
+    }
+
+    pub fn add_armor(&mut self, id: Uuid, amount: f32) {
+        if let Some(mut player) = self.players.get_mut(&id) {
+            player.add_armor(amount);
         }
     }
 }

@@ -169,11 +169,14 @@ impl PhysicsWorld {
             .density(density * 0.5)
             .friction(1.2)
             .restitution(0.2)
-            .active_collision_types(ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_FIXED)
+            // Enable all collision types
+            .active_collision_types(ActiveCollisionTypes::all())
+            // Enable collision events for debugging
+            .active_events(ActiveEvents::COLLISION_EVENTS | ActiveEvents::CONTACT_FORCE_EVENTS)
+            // Set solver groups - dynamic objects should interact with everything
             .solver_groups(InteractionGroups::all())
+            // Set collision groups - dynamic objects detect everything
             .collision_groups(InteractionGroups::all())
-            // Add contact force events to ensure collisions are detected
-            .active_events(ActiveEvents::CONTACT_FORCE_EVENTS)
             .build();
         self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
     }
@@ -215,6 +218,7 @@ impl PhysicsWorld {
         self.rigid_body_set.insert(rigid_body)
     }
 
+    #[allow(dead_code)]
     pub fn create_dynamic_body(
         &mut self,
         position: Vector3<f32>,
@@ -222,10 +226,11 @@ impl PhysicsWorld {
     ) -> RigidBodyHandle {
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(position)
-            .rotation(rotation.scaled_axis()) // Convert quaternion to axis-angle vector
-            .linear_damping(0.8)  // Increased damping for more stability
-            .angular_damping(3.0) // Higher angular damping to prevent wild spinning
-            .ccd_enabled(true)    // Enable continuous collision detection
+            .rotation(rotation.scaled_axis())
+            .linear_damping(0.5)  // Reduced damping for better physics response
+            .angular_damping(1.0) // Reduced angular damping
+            .ccd_enabled(true)
+            .can_sleep(true) // Allow sleeping for performance
             .build();
         self.rigid_body_set.insert(rigid_body)
     }
@@ -280,6 +285,13 @@ impl PhysicsWorld {
             }
         }
     }
+
+    // Add method to wake up bodies when interacted with
+    pub fn wake_body(&mut self, handle: RigidBodyHandle) {
+        if let Some(body) = self.rigid_body_set.get_mut(handle) {
+            body.wake_up(true);
+        }
+    }
 }
 
 pub struct PhysicsManager {
@@ -314,10 +326,6 @@ impl PhysicsManager {
     }
 
     // Delegate other methods to the inner world
-    pub fn create_dynamic_body(&mut self, position: Vector3<f32>, rotation: UnitQuaternion<f32>) -> RigidBodyHandle {
-        self.world.create_dynamic_body(position, rotation)
-    }
-
     pub fn create_player_body(&mut self, position: Vector3<f32>) -> RigidBodyHandle {
         self.world.create_player_body(position)
     }

@@ -60,35 +60,61 @@ pub enum ClientMessage {
     FireWeapon {
         weapon_type: String,
         origin: Position,
-        direction: Position, // Using Position for direction vector
-        weapon_id: Option<String>,
+        direction: Velocity, // Using Velocity to represent direction vector
+        hit_point: Option<Position>,
+        hit_player_id: Option<String>,
+        hit_object_id: Option<String>,
     },
-    WeaponSwitch {
-        weapon_type: String,
+    ReloadWeapon,
+    SwitchWeapon {
+        slot: u8,
     },
-    WeaponReload {
-        weapon_type: String,
+    PickupItem {
+        item_id: String,
     },
-    ProjectileHit {
-        projectile_id: String,
-        hit_type: String, // "player", "vehicle", "terrain"
-        hit_id: Option<String>, // Player or vehicle ID if applicable
-        position: Position,
-    },
-    LockOnUpdate {
-        lock_data: LockOnData,
-    },
-    CountermeasureDeploy {
+    RequestRespawn,
+    VehicleUpdate {
         vehicle_id: String,
-        countermeasure_type: String, // "chaff" or "flares"
         position: Position,
+        rotation: Rotation,
         velocity: Velocity,
+        angular_velocity: Velocity, // Reuse Velocity for angular
+        controls: VehicleControls,
+    },
+    FireVehicleWeapon {
+        vehicle_id: String,
+        weapon_index: u8,
+        target_position: Option<Position>,
+        target_id: Option<String>,
+    },
+    DeployCountermeasure {
+        vehicle_id: String,
+    },
+    LockOnTarget {
+        vehicle_id: String,
+        target_id: Option<String>,
     },
     EnterVehicle {
         vehicle_id: String,
     },
     ExitVehicle {
         exit_position: Option<Position>,
+    },
+    GrabObject {
+        object_id: String,
+        grab_point: Position, // Where on the object the player grabbed
+    },
+    MoveGrabbedObject {
+        object_id: String,
+        target_position: Position, // Where to move the object
+    },
+    ThrowObject {
+        object_id: String,
+        throw_force: Velocity, // Direction and magnitude of throw
+        release_point: Position, // Where the object is released from
+    },
+    ReleaseObject {
+        object_id: String,
     },
 }
 
@@ -178,19 +204,49 @@ pub enum ServerMessage {
         player_id: String,
         weapon_type: String,
         origin: Position,
-        direction: Position,
+        direction: Velocity,
+        projectile_id: Option<String>,
+    },
+    ProjectileSpawned {
         projectile_id: String,
+        projectile_type: String,
+        position: Position,
+        velocity: Velocity,
+        rotation: Rotation,
+        owner_id: String,
     },
     ProjectileUpdate {
         projectile_id: String,
         position: Position,
         velocity: Velocity,
+        rotation: Rotation,
     },
-    ProjectileHit {
+    ProjectileImpact {
         projectile_id: String,
         position: Position,
-        hit_type: String,
-        explosion_type: Option<String>,
+        explosion_radius: Option<f32>,
+        damage: f32,
+    },
+    CountermeasureDeployed {
+        vehicle_id: String,
+        countermeasure_type: String,
+        position: Position,
+        velocity: Velocity,
+    },
+    VehicleUpdate {
+        vehicle_id: String,
+        position: Position,
+        rotation: Rotation,
+        velocity: Velocity,
+        angular_velocity: Velocity,
+        health: f32,
+        pilot_id: Option<String>,
+    },
+    VehicleDamaged {
+        vehicle_id: String,
+        damage: f32,
+        health: f32,
+        attacker_id: Option<String>,
     },
     PlayerHealthUpdate {
         player_id: String,
@@ -198,16 +254,23 @@ pub enum ServerMessage {
         max_health: f32,
         armor: f32,
     },
+    PlayerHealth {
+        player_id: String,
+        health: f32,
+        armor: f32,
+    },
     PlayerDamaged {
         player_id: String,
         damage: f32,
-        damage_type: String,
+        damage_type: Option<String>,
         attacker_id: Option<String>,
+        health: f32,
+        armor: f32,
     },
     PlayerKilled {
         player_id: String,
         killer_id: Option<String>,
-        death_type: String,
+        weapon_type: Option<String>,
     },
     PlayerRespawned {
         player_id: String,
@@ -248,6 +311,56 @@ pub enum ServerMessage {
         aim_rotation: Rotation,
         is_grounded: bool,
     },
+    ObjectGrabbed {
+        object_id: String,
+        player_id: String,
+        grab_offset: Position, // Offset from object center
+    },
+    ObjectMoved {
+        object_id: String,
+        position: Position,
+        rotation: Rotation,
+    },
+    ObjectThrown {
+        object_id: String,
+        player_id: String,
+        position: Position,
+        velocity: Velocity,
+        angular_velocity: Velocity,
+    },
+    ObjectReleased {
+        object_id: String,
+        player_id: String,
+        position: Position,
+        velocity: Option<Velocity>,
+    },
+    GrabFailed {
+        object_id: String,
+        reason: String,
+    },
+    ItemSpawned {
+        item_id: String,
+        item_type: String,
+        position: Position,
+        properties: Option<serde_json::Value>,
+    },
+    ItemPickedUp {
+        item_id: String,
+        player_id: String,
+    },
+    ItemRespawned {
+        item_id: String,
+    },
+    VehicleSpawned {
+        vehicle_id: String,
+        vehicle_type: String,
+        position: Position,
+        rotation: Rotation,
+    },
+    VehicleDestroyed {
+        vehicle_id: String,
+        destroyer_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -276,10 +389,14 @@ pub struct DynamicObjectInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LevelObject {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub object_type: String,
     pub position: Position,
     pub rotation: Option<Rotation>,
     pub scale: Option<Vec3>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub physics: Option<String>,
     pub properties: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terrain_data: Option<TerrainData>,
@@ -304,4 +421,14 @@ pub struct LockOnData {
     pub target_id: Option<String>,
     pub is_locked: bool,
     pub lock_progress: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VehicleControls {
+    pub throttle: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub roll: f32,
+    pub brake: bool,
+    pub boost: bool,
 }

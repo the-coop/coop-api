@@ -3,6 +3,7 @@ use crate::physics::PhysicsWorld;
 use nalgebra::{Vector3, UnitQuaternion};
 use rapier3d::prelude::*;
 
+#[derive(Clone)]
 pub struct Level {
     pub objects: Vec<LevelObject>,
 }
@@ -29,10 +30,12 @@ impl Level {
         
         // Planet at y = -250
         objects.push(LevelObject {
+            id: None,
             object_type: "planet".to_string(),
             position: Position { x: 0.0, y: -250.0, z: 0.0 },
             rotation: None,
             scale: Some(Vec3 { x: planet_radius, y: planet_radius, z: planet_radius }),
+            physics: None,
             properties: None,
             terrain_data: Some(TerrainData {
                 vertices: flattened_vertices,
@@ -41,58 +44,220 @@ impl Level {
         });
         
         // Main platform at y = 30 (height 3, so top is at y = 31.5)
+        // Make it much larger to accommodate vehicles
         objects.push(LevelObject {
+            id: Some("main_platform".to_string()),
             object_type: "platform".to_string(),
             position: Position { x: 0.0, y: 30.0, z: 0.0 },
             rotation: None,
-            scale: Some(Vec3 { x: 50.0, y: 3.0, z: 50.0 }),
+            scale: Some(Vec3 { x: 150.0, y: 3.0, z: 150.0 }), // Increased from 50x50 to 150x150
+            physics: Some("static".to_string()),
             properties: None,
             terrain_data: None,
         });
         
-        // Add wall
+        // Adjust wall positions for larger platform
         objects.push(LevelObject {
+            id: Some("wall_1".to_string()),
             object_type: "wall".to_string(),
-            position: Position { x: 10.0, y: 30.0 + 1.5 + 4.0, z: -15.0 },
+            position: Position { x: 30.0, y: 30.0 + 1.5 + 4.0, z: -45.0 }, // Moved further out
             rotation: None,
-            scale: Some(Vec3 { x: 20.0, y: 8.0, z: 1.0 }),
+            scale: Some(Vec3 { x: 40.0, y: 8.0, z: 1.0 }), // Made wider
+            physics: Some("static".to_string()),
             properties: None,
             terrain_data: None,
         });
         
-        // Add ramp
+        // Adjust ramp position
         let ramp_angle = std::f32::consts::PI / 6.0;
         objects.push(LevelObject {
+            id: Some("ramp_1".to_string()),
             object_type: "ramp".to_string(),
-            position: Position { x: -15.0, y: 30.0 + 1.5 + 2.5, z: 10.0 },
+            position: Position { x: -45.0, y: 30.0 + 1.5 + 2.5, z: 30.0 }, // Moved further out
             rotation: Some(Rotation {
-                x: -(ramp_angle / 2.0).sin(), // Negative for correct rotation
+                x: -(ramp_angle / 2.0).sin(),
                 y: 0.0,
                 z: 0.0,
                 w: (ramp_angle / 2.0).cos(),
             }),
-            scale: Some(Vec3 { x: 10.0, y: 1.0, z: 15.0 }),
+            scale: Some(Vec3 { x: 15.0, y: 1.0, z: 20.0 }), // Made larger
+            physics: Some("static".to_string()),
             properties: None,
             terrain_data: None,
         });
         
-        // Moving platform positioned at top of ramp
-        let ramp_top_offset = ramp_angle.sin() * 15.0 / 2.0;
-        let ramp_top_height = 30.0 + 3.0/2.0 + 5.0/2.0 + ramp_top_offset;
-        let ramp_top_z = 10.0 + ramp_angle.cos() * 15.0 / 2.0;
-        
+        // Adjust water pool position for larger platform
         objects.push(LevelObject {
-            object_type: "moving_platform".to_string(),
-            position: Position {
-                x: -15.0,
-                y: ramp_top_height + 0.5,
-                z: ramp_top_z + 4.0 + 1.0,
+            id: Some("water_pool".to_string()),
+            object_type: "water_volume".to_string(),
+            position: Position { 
+                x: 45.0, // Moved further right
+                y: 31.5 + 5.0,
+                z: 0.0 
             },
             rotation: None,
-            scale: Some(Vec3 { x: 8.0, y: 1.0, z: 8.0 }),
+            scale: Some(Vec3 { x: 20.0, y: 10.0, z: 20.0 }), // Made larger
+            physics: Some("sensor".to_string()),
             properties: Some(serde_json::json!({
-                "move_range": 20.0,
-                "move_speed": 0.2
+                "color": "#4488ff",
+                "opacity": 0.5,
+                "flow_speed": 0.0
+            })),
+            terrain_data: None,
+        });
+        
+        // Add vehicle spawn points throughout the level - MOVED UP BEFORE WEAPON SPAWNS
+        
+        // Spaceship spawn - plenty of room on larger platform
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_spaceship_1".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: -60.0, y: 32.0, z: 60.0 }, // Corner of large platform
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "spaceship",
+                "respawn_time": 180,
+                "spawn_height": 2.0
+            })),
+            terrain_data: None,
+        });
+        
+        // Helicopter spawn - helipad area
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_helicopter_1".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: 60.0, y: 32.0, z: -60.0 }, // Opposite corner
+            rotation: Some(Rotation { x: 0.0, y: 0.7071, z: 0.0, w: 0.7071 }), // 90 degree rotation
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "helicopter",
+                "respawn_time": 150,
+                "spawn_height": 2.0
+            })),
+            terrain_data: None,
+        });
+        
+        // Plane spawn - needs runway space
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_plane_1".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: 0.0, y: 32.0, z: -70.0 }, // Along edge for takeoff
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "plane",
+                "respawn_time": 150,
+                "spawn_height": 2.0
+            })),
+            terrain_data: None,
+        });
+        
+        // Car spawns - multiple ground vehicle areas
+        let car_spawns = vec![
+            (Position { x: -40.0, y: 32.0, z: -40.0 }, 0.0),
+            (Position { x: 40.0, y: 32.0, z: 40.0 }, 90.0),
+            (Position { x: -40.0, y: 32.0, z: 40.0 }, 180.0),
+            (Position { x: 40.0, y: 32.0, z: -40.0 }, 270.0),
+        ];
+        
+        for (i, (pos, rotation_deg)) in car_spawns.iter().enumerate() {
+            let rotation_rad = rotation_deg * std::f32::consts::PI / 180.0;
+            let quat_y = (rotation_rad / 2.0).sin();
+            let quat_w = (rotation_rad / 2.0).cos();
+            
+            objects.push(LevelObject {
+                id: Some(format!("vehicle_spawn_car_{}", i + 1)),
+                object_type: "vehicle_spawn".to_string(),
+                position: pos.clone(),
+                rotation: Some(Rotation { x: 0.0, y: quat_y, z: 0.0, w: quat_w }),
+                scale: None,
+                physics: Some("none".to_string()),
+                properties: Some(serde_json::json!({
+                    "vehicle_type": "car",
+                    "respawn_time": 90,
+                    "spawn_height": 1.0
+                })),
+                terrain_data: None,
+            });
+        }
+        
+        // Update vehicle spawn points with more space
+        
+        // Spaceship spawn - plenty of room
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_spaceship_1".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: -50.0, y: 32.0, z: 50.0 }, // On platform with clearance
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "spaceship",
+                "respawn_time": 180
+            })),
+            terrain_data: None,
+        });
+        
+        // Helicopter spawn - helipad area
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_helicopter_1".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: 50.0, y: 32.0, z: -50.0 }, // Opposite corner
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "helicopter",
+                "respawn_time": 150
+            })),
+            terrain_data: None,
+        });
+        
+        // Plane spawn - needs runway space
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_plane_1".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: 0.0, y: 32.0, z: -60.0 }, // Along edge for takeoff
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "plane",
+                "respawn_time": 150
+            })),
+            terrain_data: None,
+        });
+        
+        // Car spawn - ground vehicle area
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_car_1".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: -30.0, y: 32.0, z: -30.0 },
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "car",
+                "respawn_time": 90
+            })),
+            terrain_data: None,
+        });
+        
+        // Add more car spawns
+        objects.push(LevelObject {
+            id: Some("vehicle_spawn_car_2".to_string()),
+            object_type: "vehicle_spawn".to_string(),
+            position: Position { x: 30.0, y: 32.0, z: 30.0 },
+            rotation: Some(Rotation { x: 0.0, y: 0.7071, z: 0.0, w: 0.7071 }), // Rotated 90 degrees
+            scale: None,
+            physics: Some("none".to_string()),
+            properties: Some(serde_json::json!({
+                "vehicle_type": "car",
+                "respawn_time": 90
             })),
             terrain_data: None,
         });
@@ -111,6 +276,7 @@ impl Level {
             let rock_pos = rock_pos + Vector3::new(0.0, -250.0, 0.0);
             
             objects.push(LevelObject {
+                id: None,
                 object_type: "static_rock".to_string(),
                 position: Position {
                     x: rock_pos.x,
@@ -123,6 +289,7 @@ impl Level {
                     y: 0.5 + rand::random::<f32>() * 1.5,
                     z: 0.5 + rand::random::<f32>() * 1.5,
                 }),
+                physics: None,
                 properties: None,
                 terrain_data: None,
             });
@@ -132,6 +299,7 @@ impl Level {
         // Platform is at y=30 with height=3, so top is at y=31.5
         // Water should sit on top, so bottom at y=31.5
         objects.push(LevelObject {
+            id: None,
             object_type: "water_volume".to_string(),
             position: Position { 
                 x: 15.0, // Positive X side (right side when facing -Z)
@@ -140,6 +308,7 @@ impl Level {
             },
             rotation: None,
             scale: Some(Vec3 { x: 15.0, y: 10.0, z: 15.0 }), // 15x10x15 water pool
+            physics: None,
             properties: Some(serde_json::json!({
                 "color": "#4488ff",
                 "opacity": 0.5,
@@ -153,6 +322,7 @@ impl Level {
         
         // Back wall (positive Z side)
         objects.push(LevelObject {
+            id: None,
             object_type: "wall".to_string(),
             position: Position { 
                 x: 15.0, 
@@ -161,12 +331,14 @@ impl Level {
             },
             rotation: None,
             scale: Some(Vec3 { x: 17.0, y: 12.0, z: 1.0 }), // Wider and taller than water
+            physics: None,
             properties: None,
             terrain_data: None,
         });
         
         // Front wall (negative Z side)
         objects.push(LevelObject {
+            id: None,
             object_type: "wall".to_string(),
             position: Position { 
                 x: 15.0, 
@@ -175,12 +347,14 @@ impl Level {
             },
             rotation: None,
             scale: Some(Vec3 { x: 17.0, y: 12.0, z: 1.0 }),
+            physics: None,
             properties: None,
             terrain_data: None,
         });
         
         // Right wall (positive X side)
         objects.push(LevelObject {
+            id: None,
             object_type: "wall".to_string(),
             position: Position { 
                 x: 23.5, // Water edge (22.5) + wall half-thickness (0.5)
@@ -189,6 +363,7 @@ impl Level {
             },
             rotation: None,
             scale: Some(Vec3 { x: 1.0, y: 12.0, z: 17.0 }), // Swapped x and z for side wall
+            physics: None,
             properties: None,
             terrain_data: None,
         });
@@ -196,6 +371,7 @@ impl Level {
         // Left wall (negative X side) - partial wall with gap for entry
         // Upper part
         objects.push(LevelObject {
+            id: None,
             object_type: "wall".to_string(),
             position: Position { 
                 x: 6.5, // Water edge (7.5) - wall half-thickness (0.5)
@@ -204,12 +380,14 @@ impl Level {
             },
             rotation: None,
             scale: Some(Vec3 { x: 1.0, y: 12.0, z: 8.0 }), // Partial wall
+            physics: None,
             properties: None,
             terrain_data: None,
         });
         
         // Lower part
         objects.push(LevelObject {
+            id: None,
             object_type: "wall".to_string(),
             position: Position { 
                 x: 6.5,
@@ -218,7 +396,114 @@ impl Level {
             },
             rotation: None,
             scale: Some(Vec3 { x: 1.0, y: 12.0, z: 8.0 }), // Partial wall
+            physics: None,
             properties: None,
+            terrain_data: None,
+        });
+        
+        // Add weapon spawn points throughout the level
+        
+        // Pistol spawns - common, scattered around
+        objects.push(LevelObject {
+            id: Some("weapon_spawn_pistol_1".to_string()),
+            object_type: "weapon_spawn".to_string(),
+            position: Position { x: -15.0, y: 32.0, z: 10.0 },
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: Some(Vec3 { x: 1.0, y: 1.0, z: 1.0 }),
+            physics: Some("sensor".to_string()),
+            properties: Some(serde_json::json!({
+                "weapon_type": "pistol",
+                "respawn_time": 30
+            })),
+            terrain_data: None,
+        });
+        
+        objects.push(LevelObject {
+            id: Some("weapon_spawn_pistol_2".to_string()),
+            object_type: "weapon_spawn".to_string(),
+            position: Position { x: 20.0, y: 32.0, z: -15.0 },
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: Some(Vec3 { x: 1.0, y: 1.0, z: 1.0 }),
+            physics: Some("sensor".to_string()),
+            properties: Some(serde_json::json!({
+                "weapon_type": "pistol",
+                "respawn_time": 30
+            })),
+            terrain_data: None,
+        });
+        
+        // Rifle spawns - moderately common
+        objects.push(LevelObject {
+            id: Some("weapon_spawn_rifle_1".to_string()),
+            object_type: "weapon_spawn".to_string(),
+            position: Position { x: 0.0, y: 35.0, z: -25.0 }, // On ramp
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: Some(Vec3 { x: 1.0, y: 1.0, z: 1.0 }),
+            physics: Some("sensor".to_string()),
+            properties: Some(serde_json::json!({
+                "weapon_type": "rifle",
+                "respawn_time": 45
+            })),
+            terrain_data: None,
+        });
+        
+        // Shotgun spawn - near water area
+        objects.push(LevelObject {
+            id: Some("weapon_spawn_shotgun_1".to_string()),
+            object_type: "weapon_spawn".to_string(),
+            position: Position { x: 15.0, y: 32.0, z: 5.0 },
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: Some(Vec3 { x: 1.0, y: 1.0, z: 1.0 }),
+            physics: Some("sensor".to_string()),
+            properties: Some(serde_json::json!({
+                "weapon_type": "shotgun",
+                "respawn_time": 45
+            })),
+            terrain_data: None,
+        });
+        
+        // Sniper rifle spawn - high ground
+        objects.push(LevelObject {
+            id: Some("weapon_spawn_sniper_1".to_string()),
+            object_type: "weapon_spawn".to_string(),
+            position: Position { x: -10.0, y: 40.0, z: -35.0 }, // Top of ramp
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: Some(Vec3 { x: 1.0, y: 1.0, z: 1.0 }),
+            physics: Some("sensor".to_string()),
+            properties: Some(serde_json::json!({
+                "weapon_type": "sniper",
+                "respawn_time": 90
+            })),
+            terrain_data: None,
+        });
+        
+        // Grenade launcher spawn - rare
+        objects.push(LevelObject {
+            id: Some("weapon_spawn_grenade_launcher_1".to_string()),
+            object_type: "weapon_spawn".to_string(),
+            position: Position { x: 25.0, y: 32.0, z: 25.0 },
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: Some(Vec3 { x: 1.0, y: 1.0, z: 1.0 }),
+            physics: Some("sensor".to_string()),
+            properties: Some(serde_json::json!({
+                "weapon_type": "grenadeLauncher",
+                "respawn_time": 60
+            })),
+            terrain_data: None,
+        });
+        
+        // Rocket launcher spawn - very rare, powerful position
+        objects.push(LevelObject {
+            id: Some("weapon_spawn_rocket_launcher_1".to_string()),
+            object_type: "weapon_spawn".to_string(),
+            position: Position { x: 0.0, y: 32.0, z: 0.0 }, // Center of map
+            rotation: Some(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+            scale: Some(Vec3 { x: 1.0, y: 1.0, z: 1.0 }),
+            physics: Some("sensor".to_string()),
+            properties: Some(serde_json::json!({
+                "weapon_type": "rocketLauncher",
+                "respawn_time": 120
+            })),
             terrain_data: None,
         });
         
@@ -248,6 +533,10 @@ impl Level {
                 }
                 "dynamic_platform" => {
                     self.build_dynamic_platform_physics(physics, &obj);
+                }
+                "vehicle_spawn" | "weapon_spawn" => {
+                    // These don't need physics bodies, they're just spawn points
+                    tracing::debug!("Skipping physics for spawn point: {}", obj.object_type);
                 }
                 _ => {
                     tracing::warn!("Unknown object type in level: {}", obj.object_type);
@@ -293,6 +582,10 @@ impl Level {
             let collider = ColliderBuilder::cuboid(half_extents.x, half_extents.y, half_extents.z)
                 .friction(0.8)
                 .restitution(0.2)
+                // Enable collision detection with dynamic objects
+                .active_collision_types(ActiveCollisionTypes::all())
+                .solver_groups(InteractionGroups::all())
+                .collision_groups(InteractionGroups::all())
                 .build();
             physics.collider_set.insert_with_parent(collider, body, &mut physics.rigid_body_set);
         }
@@ -328,9 +621,13 @@ impl Level {
             let collider = ColliderBuilder::cuboid(half_extents.x, half_extents.y, half_extents.z)
                 .friction(12.0)
                 .restitution(0.01)
-                // Ensure kinematic platforms collide with everything
-                .active_collision_types(ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_FIXED)
+                // Enable all collision types
+                .active_collision_types(ActiveCollisionTypes::all())
+                // Ensure kinematic bodies generate contact events with dynamic bodies
+                .active_events(ActiveEvents::COLLISION_EVENTS | ActiveEvents::CONTACT_FORCE_EVENTS)
+                // Set solver groups to interact with everything
                 .solver_groups(InteractionGroups::all())
+                // Set collision groups to detect everything
                 .collision_groups(InteractionGroups::all())
                 .build();
             physics.collider_set.insert_with_parent(collider, body, &mut physics.rigid_body_set);
