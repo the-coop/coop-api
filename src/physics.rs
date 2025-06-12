@@ -181,18 +181,6 @@ impl PhysicsWorld {
         self.collider_set.insert_with_parent(collider, parent, &mut self.rigid_body_set)
     }
 
-    #[allow(dead_code)]
-    pub fn get_body_state(&self, handle: RigidBodyHandle) -> Option<(Vector3<f32>, UnitQuaternion<f32>, Vector3<f32>)> {
-        self.rigid_body_set.get(handle).map(|body| {
-            let pos = body.position();
-            (
-                pos.translation.vector.into(),
-                pos.rotation,
-                body.linvel().clone() // Clone to get owned Vector3
-            )
-        })
-    }
-
     pub fn create_fixed_body(&mut self, translation: Vector3<f32>) -> RigidBodyHandle {
         let rigid_body = RigidBodyBuilder::fixed()
             .translation(translation)
@@ -218,7 +206,6 @@ impl PhysicsWorld {
         self.rigid_body_set.insert(rigid_body)
     }
 
-    #[allow(dead_code)]
     pub fn create_dynamic_body(
         &mut self,
         position: Vector3<f32>,
@@ -337,18 +324,4 @@ impl PhysicsManager {
     pub fn create_ball_collider(&mut self, parent: RigidBodyHandle, radius: f32, density: f32) -> ColliderHandle {
         self.world.create_ball_collider(parent, radius, density)
     }
-
-    #[allow(dead_code)]
-    pub fn cast_ray(&self, _origin: Vector3<f32>, _direction: Vector3<f32>, _max_distance: f32, _ignore_collider: Option<ColliderHandle>) -> Option<RaycastHit> {
-        // Implementation remains the same
-        None
-    }
-}
-
-#[allow(dead_code)]
-pub struct RaycastHit {
-    pub collider: Option<ColliderHandle>,
-    pub toi: f32,
-    pub point: Vector3<f32>,
-    pub normal: Option<Vector3<f32>>,
 }

@@ -3,10 +3,8 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct WeaponPickup {
-    #[allow(dead_code)]
     pub id: String,
     pub weapon_type: String,
-    #[allow(dead_code)]
     pub position: nalgebra::Vector3<f32>,
     pub picked_up_by: Option<Uuid>,
     pub pickup_time: Option<std::time::Instant>,
@@ -43,13 +41,5 @@ impl WeaponManager {
             }
         }
         None
-    }
-
-    #[allow(dead_code)]
-    pub fn respawn_weapon(&mut self, weapon_id: &str) {
-        if let Some(pickup) = self.weapon_pickups.get_mut(weapon_id) {
-            pickup.picked_up_by = None;
-            pickup.pickup_time = None;
-        }
     }
 }

@@ -18,8 +18,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    #[allow(dead_code)]
-    pub fn update(&mut self, _delta_time: f32) {
+    pub fn update(&mut self, delta_time: f32) {
         // Step physics
         self.physics.step();
         
@@ -113,7 +112,7 @@ impl AppState {
                                 None
                             };
                             
-                            Some((entry.key().clone(), target_pos, _delta_time))
+                            Some((entry.key().clone(), target_pos, delta_time))
                         } else {
                             None
                         }

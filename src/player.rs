@@ -27,7 +27,6 @@ pub struct Player {
     pub health: f32,
     pub armor: f32,
     pub max_health: f32,
-    #[allow(dead_code)]
     pub max_armor: f32,
     pub is_dead: bool,
     pub last_damage_time: std::time::Instant,
@@ -36,84 +35,6 @@ pub struct Player {
 }
 
 impl Player {
-    #[allow(dead_code)]
-    pub fn new(id: Uuid, position: Vector3<f32>, sender: mpsc::UnboundedSender<Message>) -> Self {
-        Self {
-            id,
-            position,
-            rotation: nalgebra::UnitQuaternion::identity(),
-            velocity: Vector3::zeros(),
-            sender,
-            world_origin: Vector3::new(0.0, 0.0, 0.0),
-            is_grounded: false,
-            body_handle: None,
-            collider_handle: None,
-            is_swimming: false,
-            health: 100.0,
-            max_health: 100.0,
-            armor: 0.0,
-            max_armor: 100.0,
-            current_weapon: None,
-            last_damage_time: std::time::Instant::now(),
-            is_dead: false,
-            respawn_time: None,
-            current_vehicle_id: None,
-            relative_position: None,
-            relative_rotation: None,
-            aim_rotation: None,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn update_state(&mut self, pos: Position, rot: Rotation, vel: Velocity, grounded: bool) {
-        // If in vehicle, position is relative to vehicle
-        if self.current_vehicle_id.is_some() {
-            self.relative_position = Some(Vector3::new(pos.x, pos.y, pos.z));
-            self.relative_rotation = Some(nalgebra::UnitQuaternion::new_normalize(
-                nalgebra::Quaternion::new(rot.w, rot.x, rot.y, rot.z)
-            ));
-            // Don't update world position - that's calculated from vehicle position
-        } else {
-            // Normal world position update
-            self.position = Vector3::new(pos.x, pos.y, pos.z);
-            self.rotation = nalgebra::UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
-                rot.w, rot.x, rot.y, rot.z,
-            ));
-            self.velocity = Vector3::new(vel.x, vel.y, vel.z);
-            self.is_grounded = grounded;
-            
-            // Update floating origin if player moves too far from it
-            let distance_from_origin = self.position.magnitude();
-            if distance_from_origin > 1000.0 {
-                // Add current position to world origin with double precision
-                self.world_origin.x += self.position.x as f64;
-                self.world_origin.y += self.position.y as f64;
-                self.world_origin.z += self.position.z as f64;
-                
-                // Reset position to origin
-                self.position = Vector3::zeros();
-                
-                // Notify client of origin update
-                let origin_msg = ServerMessage::OriginUpdate {
-                    origin: Position {
-                        x: self.world_origin.x as f32,
-                        y: self.world_origin.y as f32,
-                        z: self.world_origin.z as f32,
-                    }
-                };
-                
-                // Send origin update asynchronously
-                let sender = self.sender.clone();
-                tokio::spawn(async move {
-                    if let Ok(json) = serde_json::to_string(&origin_msg) {
-                        let _ = sender.send(Message::Text(json));
-                    }
-                });
-            }
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn check_swimming(&mut self, physics: &PhysicsWorld) -> bool {
         if let Some(body_handle) = self.body_handle {
             if let Some(body) = physics.rigid_body_set.get(body_handle) {
@@ -139,31 +60,6 @@ impl Player {
         }
     }
     
-    #[allow(dead_code)]
-    pub fn take_damage(&mut self, damage: f32, _damage_type: &str, _attacker_id: Option<Uuid>) {
-        if self.is_dead {
-            return;
-        }
-        
-        // Apply armor reduction
-        let actual_damage = if self.armor > 0.0 {
-            let armor_absorbed = (damage * 0.5).min(self.armor);
-            self.armor -= armor_absorbed;
-            damage - armor_absorbed
-        } else {
-            damage
-        };
-        
-        self.health = (self.health - actual_damage).max(0.0);
-        self.last_damage_time = std::time::Instant::now();
-        
-        if self.health <= 0.0 {
-            self.is_dead = true;
-            self.respawn_time = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
-        }
-    }
-    
-    #[allow(dead_code)]
     pub fn respawn(&mut self, spawn_position: Vector3<f32>) {
         self.health = self.max_health;
         self.armor = 0.0;
@@ -176,78 +72,12 @@ impl Player {
         self.relative_rotation = None;
     }
     
-    #[allow(dead_code)]
-    pub fn set_weapon(&mut self, weapon_type: String) {
-        self.current_weapon = Some(weapon_type);
-    }
-    
-    #[allow(dead_code)]
     pub fn heal(&mut self, amount: f32) {
         self.health = (self.health + amount).min(self.max_health);
     }
     
-    #[allow(dead_code)]
     pub fn add_armor(&mut self, amount: f32) {
         self.armor = (self.armor + amount).min(100.0);
-    }
-    
-    #[allow(dead_code)]
-    pub fn enter_vehicle(&mut self, vehicle_id: String) {
-        self.current_vehicle_id = Some(vehicle_id);
-        self.relative_position = Some(Vector3::zeros());
-        self.relative_rotation = Some(nalgebra::UnitQuaternion::identity());
-        self.aim_rotation = Some(self.rotation); // Keep current aim
-    }
-    
-    #[allow(dead_code)]
-    pub fn exit_vehicle(&mut self, exit_position: Vector3<f32>) {
-        self.current_vehicle_id = None;
-        self.relative_position = None;
-        self.relative_rotation = None;
-        self.aim_rotation = None;
-        self.position = exit_position;
-        self.velocity = Vector3::zeros(); // Reset velocity on exit
-    }
-    
-    #[allow(dead_code)]
-    pub fn update_vehicle_state(&mut self, relative_pos: Position, relative_rot: Rotation, aim_rot: Rotation) {
-        self.relative_position = Some(Vector3::new(relative_pos.x, relative_pos.y, relative_pos.z));
-        
-        let rel_rot = nalgebra::Quaternion::new(relative_rot.w, relative_rot.x, relative_rot.y, relative_rot.z);
-        self.relative_rotation = Some(nalgebra::UnitQuaternion::new_normalize(rel_rot));
-        
-        let aim = nalgebra::Quaternion::new(aim_rot.w, aim_rot.x, aim_rot.y, aim_rot.z);
-        self.aim_rotation = Some(nalgebra::UnitQuaternion::new_normalize(aim));
-    }
-    
-    #[allow(dead_code)]
-    pub fn get_world_position_from_vehicle(&self, vehicle_position: &Vector3<f32>) -> Vector3<f32> {
-        if let Some(relative_pos) = &self.relative_position {
-            // Get world position by adding vehicle position to relative offset
-            Vector3::new(
-                self.world_origin.x as f32 + vehicle_position.x + relative_pos.x,
-                self.world_origin.y as f32 + vehicle_position.y + relative_pos.y,
-                self.world_origin.z as f32 + vehicle_position.z + relative_pos.z,
-            )
-        } else {
-            // No relative position set, return world origin
-            Vector3::new(
-                self.world_origin.x as f32,
-                self.world_origin.y as f32,
-                self.world_origin.z as f32,
-            )
-        }
-    }
-    
-    #[allow(dead_code)]
-    pub fn get_world_rotation_from_vehicle(&self, vehicle_rotation: &nalgebra::UnitQuaternion<f32>) -> nalgebra::UnitQuaternion<f32> {
-        if let Some(relative_rot) = &self.relative_rotation {
-            // Combine vehicle rotation with relative rotation
-            vehicle_rotation * relative_rot
-        } else {
-            // No relative rotation set, return vehicle rotation
-            *vehicle_rotation
-        }
     }
 }
 
@@ -421,7 +251,23 @@ impl PlayerManager {
 
     pub fn damage_player(&mut self, id: Uuid, damage: f32, damage_type: &str, attacker_id: Option<Uuid>) -> bool {
         if let Some(mut player) = self.players.get_mut(&id) {
-            player.take_damage(damage, damage_type, attacker_id);
+            // Apply armor reduction
+            let actual_damage = if player.armor > 0.0 {
+                let armor_absorbed = (damage * 0.5).min(player.armor);
+                player.armor -= armor_absorbed;
+                damage - armor_absorbed
+            } else {
+                damage
+            };
+            
+            player.health = (player.health - actual_damage).max(0.0);
+            player.last_damage_time = std::time::Instant::now();
+            
+            if player.health <= 0.0 {
+                player.is_dead = true;
+                player.respawn_time = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+            }
+            
             return player.is_dead;
         }
         false

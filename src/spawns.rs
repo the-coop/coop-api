@@ -6,10 +6,9 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct PlayerSpawnPoint {
-    #[allow(dead_code)]
+    // Keep id for identification and rotation for serialization
     pub id: String,
     pub position: Position,
-    #[allow(dead_code)]
     pub rotation: Rotation,
 }
 
@@ -19,8 +18,7 @@ pub struct VehicleSpawnPoint {
     pub vehicle_type: String,
     pub position: Position,
     pub rotation: Rotation,
-    #[allow(dead_code)]
-    pub respawn_time: f32,
+    pub respawn_time: f32,  // Keep for configuration
     pub occupied: bool,
 }
 
@@ -36,8 +34,7 @@ pub struct WeaponSpawnPoint {
 #[derive(Debug, Clone)]
 pub struct SpawnedItem {
     pub spawn_point_id: String,
-    #[allow(dead_code)]
-    pub item_id: String,
+    pub item_id: String,  // Keep for identification
     pub spawn_time: Instant,
     pub picked_up: bool,
     pub pickup_time: Option<Instant>,

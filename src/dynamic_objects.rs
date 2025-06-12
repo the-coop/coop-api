@@ -15,43 +15,18 @@ pub struct DynamicObject {
     pub velocity: Vector3<f32>,
     pub scale: f32,
     pub body_handle: Option<RigidBodyHandle>,
-    #[allow(dead_code)]
     pub collider_handle: Option<ColliderHandle>,
     pub owner: Option<(Uuid, Instant)>,
     pub last_update: Instant,
-    #[allow(dead_code)]
     pub created_at: Instant,
 
-    pub grabbed_by: Option<(Uuid, std::time::Instant)>, // Player ID and grab time
-    pub grab_offset: Option<Vector3<f32>>, // Offset from object center where grabbed
-    pub is_kinematic_ghost: bool, // Whether object is in kinematic grab mode
-    pub original_body_type: Option<String>, // Store original body type for restoration
+    pub grabbed_by: Option<(Uuid, std::time::Instant)>,
+    pub grab_offset: Option<Vector3<f32>>,
+    pub is_kinematic_ghost: bool,
+    pub original_body_type: Option<String>,
 }
 
 impl DynamicObject {
-    #[allow(dead_code)]
-    pub fn new(id: String, object_type: String, world_origin: Vector3<f64>, scale: f32) -> Self {
-        Self {
-            id,
-            object_type,
-            world_origin,
-            position: Vector3::zeros(),
-            rotation: UnitQuaternion::identity(),
-            velocity: Vector3::zeros(),
-            scale,
-            body_handle: None,
-            collider_handle: None,
-            owner: None,
-            last_update: Instant::now(),
-            created_at: Instant::now(),
-
-            grabbed_by: None,
-            grab_offset: None,
-            is_kinematic_ghost: false,
-            original_body_type: None,
-        }
-    }
-
     pub fn get_world_position(&self) -> Vector3<f64> {
         // Return world position in double precision
         Vector3::new(
@@ -86,24 +61,6 @@ impl DynamicObject {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn is_owned_by(&self, player_id: Uuid) -> bool {
-        match &self.owner {
-            Some((id, _)) => *id == player_id,
-            None => false,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn grant_ownership(&mut self, player_id: Uuid, duration: Duration) {
-        self.owner = Some((player_id, Instant::now() + duration));
-    }
-
-    #[allow(dead_code)]
-    pub fn is_expired(&self, lifetime: Duration) -> bool {
-        self.created_at.elapsed() > lifetime
-    }
-
     pub fn grab(&mut self, player_id: Uuid, grab_offset: Vector3<f32>) -> bool {
         if self.grabbed_by.is_some() {
             return false; // Already grabbed
@@ -112,7 +69,6 @@ impl DynamicObject {
         self.grabbed_by = Some((player_id, std::time::Instant::now()));
         self.grab_offset = Some(grab_offset);
         self.is_kinematic_ghost = true;
-        // Don't change physics body type here - that's handled by physics manager
         
         true
     }
@@ -124,21 +80,11 @@ impl DynamicObject {
         self.original_body_type = None;
     }
     
-    #[allow(dead_code)]
-    pub fn is_grabbed(&self) -> bool {
-        self.grabbed_by.is_some()
-    }
-    
     pub fn is_grabbed_by(&self, player_id: Uuid) -> bool {
         match &self.grabbed_by {
             Some((id, _)) => *id == player_id,
             None => false,
         }
-    }
-    
-    #[allow(dead_code)]
-    pub fn get_grab_duration(&self) -> Option<std::time::Duration> {
-        self.grabbed_by.as_ref().map(|(_, time)| time.elapsed())
     }
 }
 
@@ -291,8 +237,7 @@ impl DynamicObjectManager {
             obj.owner = Some((player_id, Instant::now() + duration));
         }
     }
-
-    #[allow(dead_code)]
+    
     pub fn update_ownership(&mut self) {
         let now = Instant::now();
         

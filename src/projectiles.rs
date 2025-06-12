@@ -7,61 +7,18 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct Projectile {
     pub id: String,
-    #[allow(dead_code)]
-    pub projectile_type: String,
-    #[allow(dead_code)]
-    pub owner_id: Uuid,
+    // These fields may be serialized or used in other contexts
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
     pub rotation: UnitQuaternion<f32>,
-    #[allow(dead_code)]
-    pub damage: f32,
-    #[allow(dead_code)]
-    pub explosion_radius: Option<f32>,
     pub body_handle: Option<RigidBodyHandle>,
-    #[allow(dead_code)]
-    pub collider_handle: Option<ColliderHandle>,
     pub created_at: Instant,
     pub lifetime: f32,
-    #[allow(dead_code)]
-    pub has_gravity: bool,
     pub is_homing: bool,
     pub target_id: Option<String>,
 }
 
 impl Projectile {
-    #[allow(dead_code)]
-    pub fn new(
-        id: String,
-        projectile_type: String,
-        owner_id: Uuid,
-        position: Vector3<f32>,
-        velocity: Vector3<f32>,
-        rotation: UnitQuaternion<f32>,
-        damage: f32,
-        explosion_radius: Option<f32>,
-        lifetime: f32,
-        has_gravity: bool,
-    ) -> Self {
-        Self {
-            id,
-            projectile_type,
-            owner_id,
-            position,
-            velocity,
-            rotation,
-            damage,
-            explosion_radius,
-            body_handle: None,
-            collider_handle: None,
-            created_at: Instant::now(),
-            lifetime,
-            has_gravity,
-            is_homing: false,
-            target_id: None,
-        }
-    }
-    
     pub fn is_expired(&self) -> bool {
         self.created_at.elapsed() > Duration::from_secs_f32(self.lifetime)
     }
@@ -113,48 +70,6 @@ impl ProjectileManager {
         }
     }
     
-    #[allow(dead_code)]
-    pub fn spawn_projectile(
-        &mut self,
-        projectile_type: String,
-        owner_id: Uuid,
-        position: Vector3<f32>,
-        velocity: Vector3<f32>,
-        rotation: UnitQuaternion<f32>,
-        damage: f32,
-        explosion_radius: Option<f32>,
-        lifetime: f32,
-        has_gravity: bool,
-        body_handle: Option<RigidBodyHandle>,
-        collider_handle: Option<ColliderHandle>,
-    ) -> String {
-        let id = format!("proj_{}", Uuid::new_v4());
-        
-        let mut projectile = Projectile::new(
-            id.clone(),
-            projectile_type.clone(),
-            owner_id,
-            position,
-            velocity,
-            rotation,
-            damage,
-            explosion_radius,
-            lifetime,
-            has_gravity,
-        );
-        
-        projectile.body_handle = body_handle;
-        projectile.collider_handle = collider_handle;
-        
-        // Homing missiles
-        if projectile_type == "missile" || projectile_type == "homingMissile" {
-            projectile.is_homing = true;
-        }
-        
-        self.projectiles.insert(id.clone(), projectile);
-        id
-    }
-    
     pub fn update_from_physics(
         &mut self,
         projectile_id: &str,
@@ -169,15 +84,6 @@ impl ProjectileManager {
         }
     }
     
-    #[allow(dead_code)]
-    pub fn set_homing_target(&mut self, projectile_id: &str, target_id: String) {
-        if let Some(mut proj) = self.projectiles.get_mut(projectile_id) {
-            if proj.is_homing {
-                proj.target_id = Some(target_id);
-            }
-        }
-    }
-    
     pub fn remove_expired(&mut self) -> Vec<String> {
         let expired: Vec<String> = self.projectiles.iter()
             .filter(|entry| entry.value().is_expired())
@@ -189,14 +95,5 @@ impl ProjectileManager {
         }
         
         expired
-    }
-    
-    #[allow(dead_code)]
-    pub fn handle_impact(&mut self, projectile_id: &str) -> Option<(Vector3<f32>, f32, Option<f32>)> {
-        if let Some((_, proj)) = self.projectiles.remove(projectile_id) {
-            Some((proj.position, proj.damage, proj.explosion_radius))
-        } else {
-            None
-        }
     }
 }
