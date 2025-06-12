@@ -124,6 +124,7 @@ impl DynamicObject {
         self.original_body_type = None;
     }
     
+    #[allow(dead_code)]
     pub fn is_grabbed(&self) -> bool {
         self.grabbed_by.is_some()
     }
@@ -135,6 +136,7 @@ impl DynamicObject {
         }
     }
     
+    #[allow(dead_code)]
     pub fn get_grab_duration(&self) -> Option<std::time::Duration> {
         self.grabbed_by.as_ref().map(|(_, time)| time.elapsed())
     }
@@ -313,6 +315,7 @@ impl DynamicObjectManager {
         }
     }
     
+    #[allow(dead_code)]
     pub fn remove_expired_objects(&self, lifetime: Duration) -> Vec<(String, Option<RigidBodyHandle>)> {
         let now = Instant::now();
         let mut expired = Vec::new();
@@ -373,6 +376,7 @@ impl DynamicObjectManager {
         false
     }
     
+    #[allow(dead_code)]
     pub fn get_grabbed_objects_by_player(&self, player_id: Uuid) -> Vec<String> {
         self.objects.iter()
             .filter_map(|entry| {

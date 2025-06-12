@@ -56,6 +56,13 @@ async fn main() {
     // Track dynamic platforms from level in dynamic objects manager
     let mut dynamic_objects = DynamicObjectManager::new();
     
+    // Initialize spawn manager with level data
+    let mut spawn_manager = SpawnManager::new();
+    let initial_spawn_messages = spawn_manager.initialize_from_level(&level);
+    info!("Initialized {} vehicle spawns and {} weapon spawns from level", 
+        spawn_manager.vehicle_spawns.len(), 
+        spawn_manager.weapon_spawns.len());
+    
     // Spawn the dynamic platform above the water pool as a proper dynamic object
     {
         // Platform position: above water (water is at y=36.5, so put platform at y=44.5)
@@ -117,9 +124,12 @@ async fn main() {
         vehicles: VehicleManager::new(),
         projectiles: ProjectileManager::new(),
         level,
-        spawn_manager: SpawnManager::new(),
+        spawn_manager,
     }));
-
+    
+    // Store initial spawn messages to send to connecting players
+    let _initial_spawns = Arc::new(initial_spawn_messages);
+    
     // Spawn physics update loop
     let physics_state = state.clone();
     tokio::spawn(async move {
@@ -128,10 +138,161 @@ async fn main() {
         let mut frame_count = 0u64;
         let mut last_broadcast_time = std::time::Instant::now();
         let mut last_platform_broadcast = std::time::Instant::now(); // Track platform broadcast time
+        let mut initial_spawns_processed = false;
         
         loop {
             interval.tick().await;
             let mut state = physics_state.write().await;
+            
+            // Process initial spawns on first frame
+            if !initial_spawns_processed {
+                initial_spawns_processed = true;
+                
+                // First, collect all the spawn data we need
+                let vehicle_spawns: Vec<(String, String, Vector3<f32>, UnitQuaternion<f32>)> = 
+                    state.spawn_manager.spawned_vehicles.iter()
+                        .filter_map(|(vehicle_id, spawned_item)| {
+                            state.spawn_manager.vehicle_spawns.iter()
+                                .find(|sp| sp.id == spawned_item.spawn_point_id)
+                                .map(|spawn_point| {
+                                    let position = Vector3::new(
+                                        spawn_point.position.x,
+                                        spawn_point.position.y,
+                                        spawn_point.position.z
+                                    );
+                                    let rotation = UnitQuaternion::new_normalize(nalgebra::Quaternion::new(
+                                        spawn_point.rotation.w,
+                                        spawn_point.rotation.x,
+                                        spawn_point.rotation.y,
+                                        spawn_point.rotation.z
+                                    ));
+                                    (
+                                        vehicle_id.clone(),
+                                        spawn_point.vehicle_type.clone(),
+                                        position,
+                                        rotation
+                                    )
+                                })
+                        })
+                        .collect();
+                
+                // Now process the spawns without borrowing issues
+                for (vehicle_id, vehicle_type, position, rotation) in vehicle_spawns {
+                    // Spawn vehicle in manager with correct position
+                    state.vehicles.spawn_vehicle_with_id(
+                        vehicle_id.clone(),
+                        vehicle_type.clone(),
+                        Vector3::new(position.x as f64, position.y as f64, position.z as f64),
+                        Some(rotation),
+                        None
+                    );
+                    
+                    // Create physics body based on vehicle type
+                    let body_handle = match vehicle_type.as_str() {
+                        "spaceship" => {
+                            let body = RigidBodyBuilder::dynamic()
+                                .translation(position)
+                                .rotation(rotation.scaled_axis())
+                                .linear_damping(0.5)
+                                .angular_damping(1.0)
+                                .ccd_enabled(true)
+                                .build();
+                            Some(state.physics.world.rigid_body_set.insert(body))
+                        }
+                        "helicopter" => {
+                            let body = RigidBodyBuilder::dynamic()
+                                .translation(position)
+                                .rotation(rotation.scaled_axis())
+                                .linear_damping(2.0)
+                                .angular_damping(2.0)
+                                .ccd_enabled(true)
+                                .build();
+                            Some(state.physics.world.rigid_body_set.insert(body))
+                        }
+                        "plane" => {
+                            let body = RigidBodyBuilder::dynamic()
+                                .translation(position)
+                                .rotation(rotation.scaled_axis())
+                                .linear_damping(0.1)
+                                .angular_damping(0.5)
+                                .ccd_enabled(true)
+                                .build();
+                            Some(state.physics.world.rigid_body_set.insert(body))
+                        }
+                        "car" => {
+                            let body = RigidBodyBuilder::dynamic()
+                                .translation(position)
+                                .rotation(rotation.scaled_axis())
+                                .linear_damping(1.0)
+                                .angular_damping(2.0)
+                                .ccd_enabled(true)
+                                .build();
+                            Some(state.physics.world.rigid_body_set.insert(body))
+                        }
+                        _ => None,
+                    };
+                    
+                    // Update vehicle with physics handle
+                    if let Some(handle) = body_handle {
+                        // First update the vehicle with the body handle
+                        if let Some(mut vehicle) = state.vehicles.vehicles.get_mut(&vehicle_id) {
+                            vehicle.body_handle = Some(handle);
+                        }
+                        
+                        // Then create and add the collider
+                        let collider = match vehicle_type.as_str() {
+                            "spaceship" => {
+                                ColliderBuilder::cuboid(2.5, 1.0, 4.0)
+                                    .density(0.5)
+                                    .friction(0.5)
+                                    .restitution(0.2)
+                                    .build()
+                            }
+                            "helicopter" => {
+                                ColliderBuilder::cuboid(2.0, 1.5, 3.0)
+                                    .density(0.3)
+                                    .friction(0.5)
+                                    .restitution(0.2)
+                                    .build()
+                            }
+                            "plane" => {
+                                ColliderBuilder::cuboid(3.0, 0.8, 4.0)
+                                    .density(0.4)
+                                    .friction(0.3)
+                                    .restitution(0.2)
+                                    .build()
+                            }
+                            "car" => {
+                                ColliderBuilder::cuboid(1.5, 0.8, 2.0)
+                                    .density(0.8)
+                                    .friction(0.8)
+                                    .restitution(0.3)
+                                    .build()
+                            }
+                            _ => {
+                                ColliderBuilder::cuboid(1.0, 1.0, 1.0)
+                                    .density(0.5)
+                                    .build()
+                            }
+                        };
+                        
+                        // Get mutable reference to physics world components
+                        let physics_world = &mut state.physics.world;
+                        let collider_handle = physics_world.collider_set.insert_with_parent(
+                            collider,
+                            handle,
+                            &mut physics_world.rigid_body_set
+                        );
+                        
+                        // Finally update the vehicle with the collider handle
+                        if let Some(mut vehicle) = state.vehicles.vehicles.get_mut(&vehicle_id) {
+                            vehicle.collider_handle = Some(collider_handle);
+                        }
+                    }
+                }
+                
+                info!("Initialized {} vehicles with physics bodies", state.spawn_manager.spawned_vehicles.len());
+            }
             
             // Update spawn manager
             state.spawn_manager.update(Duration::from_millis(16));
@@ -278,7 +439,7 @@ async fn main() {
                         if obj.body_handle.is_some() {
                             // Get fresh physics state for broadcast
                             if let Some(handle) = obj.body_handle {
-                                state.physics.get_body_state(handle).map(|(pos, rot, vel)| {
+                                state.physics.get_body_state(handle).map(|(_pos, rot, vel)| {
                                     let world_pos = obj.get_world_position();
                                     (obj.id.clone(), world_pos, rot, vel)
                                 })
@@ -362,8 +523,61 @@ async fn main() {
                 };
                 
                 // Update vehicle with physics handle
-                if let (Some(handle), Some(mut vehicle)) = (body_handle, state.vehicles.vehicles.get_mut(&vehicle_id)) {
-                    vehicle.body_handle = Some(handle);
+                if let Some(handle) = body_handle {
+                    // First update the vehicle with the body handle
+                    if let Some(mut vehicle) = state.vehicles.vehicles.get_mut(&vehicle_id) {
+                        vehicle.body_handle = Some(handle);
+                    }
+                    
+                    // Then create and add the collider
+                    let collider = match vehicle_type.as_str() {
+                        "spaceship" => {
+                            ColliderBuilder::cuboid(2.5, 1.0, 4.0)
+                                .density(0.5)
+                                .friction(0.5)
+                                .restitution(0.2)
+                                .build()
+                        }
+                        "helicopter" => {
+                            ColliderBuilder::cuboid(2.0, 1.5, 3.0)
+                                .density(0.3)
+                                .friction(0.5)
+                                .restitution(0.2)
+                                .build()
+                        }
+                        "plane" => {
+                            ColliderBuilder::cuboid(3.0, 0.8, 4.0)
+                                .density(0.4)
+                                .friction(0.3)
+                                .restitution(0.2)
+                                .build()
+                        }
+                        "car" => {
+                            ColliderBuilder::cuboid(1.5, 0.8, 2.0)
+                                .density(0.8)
+                                .friction(0.8)
+                                .restitution(0.3)
+                                .build()
+                        }
+                        _ => {
+                            ColliderBuilder::cuboid(1.0, 1.0, 1.0)
+                                .density(0.5)
+                                .build()
+                        }
+                    };
+                    
+                    // Get mutable reference to physics world components
+                    let physics_world = &mut state.physics.world;
+                    let collider_handle = physics_world.collider_set.insert_with_parent(
+                        collider,
+                        handle,
+                        &mut physics_world.rigid_body_set
+                    );
+                    
+                    // Finally update the vehicle with the collider handle
+                    if let Some(mut vehicle) = state.vehicles.vehicles.get_mut(&vehicle_id) {
+                        vehicle.collider_handle = Some(collider_handle);
+                    }
                 }
                 
                 // Broadcast respawn
@@ -579,7 +793,72 @@ async fn handle_socket(socket: WebSocket, state: Arc<RwLock<AppState>>) {
         if tx.send(Message::Text(serde_json::to_string(&level_msg).unwrap())).is_err() {
             error!("Failed to send level data to {}", player_id);
         }
-
+        
+        // Send existing vehicles to new player
+        for entry in state_write.vehicles.vehicles.iter() {
+            let vehicle = entry.value();
+            let world_pos = vehicle.get_world_position();
+            
+            // Check if this is an initial spawn that needs position from spawn manager
+            let actual_position = if world_pos.x == 0.0 && world_pos.y == 0.0 && world_pos.z == 0.0 {
+                // Find the spawn point for this vehicle
+                state_write.spawn_manager.spawned_vehicles.iter()
+                    .find(|(id, _)| **id == vehicle.id)
+                    .and_then(|(_, spawned_item)| {
+                        state_write.spawn_manager.vehicle_spawns.iter()
+                            .find(|sp| sp.id == spawned_item.spawn_point_id)
+                            .map(|sp| Position {
+                                x: sp.position.x,
+                                y: sp.position.y,
+                                z: sp.position.z,
+                            })
+                    })
+                    .unwrap_or(Position {
+                        x: world_pos.x as f32,
+                        y: world_pos.y as f32,
+                        z: world_pos.z as f32,
+                    })
+            } else {
+                Position {
+                    x: world_pos.x as f32,
+                    y: world_pos.y as f32,
+                    z: world_pos.z as f32,
+                }
+            };
+            
+            let spawn_msg = ServerMessage::VehicleSpawned {
+                vehicle_id: vehicle.id.clone(),
+                vehicle_type: vehicle.vehicle_type.clone(),
+                position: actual_position,
+                rotation: Rotation {
+                    x: vehicle.rotation.i,
+                    y: vehicle.rotation.j,
+                    z: vehicle.rotation.k,
+                    w: vehicle.rotation.w,
+                },
+            };
+            if tx.send(Message::Text(serde_json::to_string(&spawn_msg).unwrap())).is_err() {
+                error!("Failed to send vehicle spawn to {}", player_id);
+            }
+        }
+        
+        // Send existing weapon spawns to new player
+        for (weapon_id, spawned_item) in state_write.spawn_manager.spawned_weapons.iter() {
+            if !spawned_item.picked_up {
+                if let Some(spawn_point) = state_write.spawn_manager.weapon_spawns.iter()
+                    .find(|sp| sp.id == spawned_item.spawn_point_id) {
+                    let weapon_msg = ServerMessage::WeaponSpawn {
+                        weapon_id: weapon_id.clone(),
+                        weapon_type: spawn_point.weapon_type.clone(),
+                        position: spawn_point.position.clone(),
+                    };
+                    if tx.send(Message::Text(serde_json::to_string(&weapon_msg).unwrap())).is_err() {
+                        error!("Failed to send weapon spawn to {}", player_id);
+                    }
+                }
+            }
+        }
+        
         // Send existing players to new player
         let players_list = state_write.players.get_all_players_except(player_id);
         let list_msg = ServerMessage::PlayersList { players: players_list };

@@ -8,22 +8,22 @@ use uuid::Uuid;
 pub struct Vehicle {
     pub id: String,
     pub vehicle_type: String,
-    pub world_position: Vector3<f64>,
     pub position: Vector3<f32>,
+    pub world_position: Vector3<f64>,
     pub rotation: UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub angular_velocity: Vector3<f32>,
     pub health: f32,
     pub max_health: f32,
-    pub body_handle: Option<RigidBodyHandle>,
     #[allow(dead_code)]
-    pub collider_handle: Option<ColliderHandle>,
+    pub armor: f32, // Add armor field
     pub pilot_id: Option<Uuid>,
-    #[allow(dead_code)]
     pub passengers: Vec<Uuid>,
-    pub last_update: Instant,
-    pub respawn_time: Option<Instant>,
     pub is_destroyed: bool,
+    pub respawn_time: Option<Instant>,
+    pub body_handle: Option<RigidBodyHandle>,
+    pub collider_handle: Option<ColliderHandle>,
+    pub last_update: Instant,
 }
 
 impl Vehicle {
@@ -47,13 +47,14 @@ impl Vehicle {
             angular_velocity: Vector3::zeros(),
             health: max_health,
             max_health,
-            body_handle: None,
-            collider_handle: None,
+            armor: 0.0, // Initialize armor
             pilot_id: None,
             passengers: Vec::new(),
-            last_update: Instant::now(),
-            respawn_time: None,
             is_destroyed: false,
+            respawn_time: None,
+            body_handle: None,
+            collider_handle: None,
+            last_update: Instant::now(),
         }
     }
     
@@ -118,20 +119,53 @@ impl VehicleManager {
     
     #[allow(dead_code)]
     pub fn spawn_vehicle(
-        &mut self, 
+        &mut self,
         vehicle_type: String,
         world_position: Vector3<f64>,
-        body_handle: Option<RigidBodyHandle>,
-        collider_handle: Option<ColliderHandle>,
+        rotation: Option<UnitQuaternion<f32>>,
+        pilot_id: Option<Uuid>,
     ) -> String {
-        let id = format!("{}_{}", vehicle_type, Uuid::new_v4());
+        let vehicle_id = format!("vehicle_{}", Uuid::new_v4());
+        self.spawn_vehicle_with_id(vehicle_id.clone(), vehicle_type, world_position, rotation, pilot_id);
+        vehicle_id
+    }
+    
+    pub fn spawn_vehicle_with_id(
+        &mut self,
+        vehicle_id: String,
+        vehicle_type: String,
+        world_position: Vector3<f64>,
+        rotation: Option<UnitQuaternion<f32>>,
+        pilot_id: Option<Uuid>,
+    ) -> String {
+        let rotation = rotation.unwrap_or_else(UnitQuaternion::identity);
         
-        let mut vehicle = Vehicle::new(id.clone(), vehicle_type, world_position);
-        vehicle.body_handle = body_handle;
-        vehicle.collider_handle = collider_handle;
+        let vehicle = Vehicle {
+            id: vehicle_id.clone(),
+            vehicle_type,
+            position: Vector3::new(
+                world_position.x as f32,
+                world_position.y as f32,
+                world_position.z as f32
+            ),
+            world_position, // Add the missing field
+            rotation,
+            velocity: Vector3::zeros(),
+            angular_velocity: Vector3::zeros(),
+            health: 100.0,
+            max_health: 100.0,
+            armor: 0.0,
+            pilot_id,
+            passengers: Vec::new(),
+            is_destroyed: false, // Use correct field name
+            respawn_time: None,
+            body_handle: None,
+            collider_handle: None,
+            last_update: Instant::now(),
+        };
         
-        self.vehicles.insert(id.clone(), vehicle);
-        id
+        self.vehicles.insert(vehicle_id.clone(), vehicle);
+        vehicle_id
     }
     
     pub fn update_from_physics(
