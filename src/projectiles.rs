@@ -1,9 +1,7 @@
-use crate::messages::{Position, Rotation, Velocity};
 use dashmap::DashMap;
 use nalgebra::{Vector3, UnitQuaternion};
 use rapier3d::prelude::RigidBodyHandle;
 use std::time::{Duration, Instant};
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct Projectile {
@@ -98,3 +96,4 @@ impl ProjectileManager {
         expired
     }
 }
+

@@ -206,22 +206,6 @@ impl PhysicsWorld {
         self.rigid_body_set.insert(rigid_body)
     }
 
-    pub fn create_dynamic_body(
-        &mut self,
-        position: Vector3<f32>,
-        rotation: UnitQuaternion<f32>,
-    ) -> RigidBodyHandle {
-        let rigid_body = RigidBodyBuilder::dynamic()
-            .translation(position)
-            .rotation(rotation.scaled_axis())
-            .linear_damping(0.5)  // Reduced damping for better physics response
-            .angular_damping(1.0) // Reduced angular damping
-            .ccd_enabled(true)
-            .can_sleep(true) // Allow sleeping for performance
-            .build();
-        self.rigid_body_set.insert(rigid_body)
-    }
-
     pub fn create_player_body(&mut self, position: Vector3<f32>) -> RigidBodyHandle {
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(position)
