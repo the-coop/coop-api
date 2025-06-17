@@ -20,8 +20,6 @@ pub struct Vehicle {
     pub _passengers: Vec<Uuid>,  // Keep for game logic
     pub body_handle: Option<RigidBodyHandle>,
     pub collider_handle: Option<ColliderHandle>,
-    pub spawn_point_id: Option<String>,
-    pub destroyed_at: Option<std::time::Instant>,
     pub is_destroyed: bool,
     pub respawn_time: Option<std::time::Instant>,
     pub last_update: Instant,
@@ -88,8 +86,6 @@ impl VehicleManager {
             respawn_time: None,
             body_handle: None,
             collider_handle: None,
-            spawn_point_id: None,
-            destroyed_at: None,
             last_update: Instant::now(),
         };
         
