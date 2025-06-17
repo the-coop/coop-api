@@ -15,7 +15,7 @@ pub struct DynamicObject {
     pub velocity: Vector3<f32>,
     pub scale: f32,
     pub body_handle: Option<RigidBodyHandle>,
-    pub collider_handle: Option<ColliderHandle>,
+    pub _collider_handle: Option<ColliderHandle>,
     pub owner: Option<(Uuid, Instant)>,
     pub last_update: Instant,
     pub created_at: Instant,
@@ -117,7 +117,7 @@ impl DynamicObjectManager {
             velocity: Vector3::zeros(),
             scale,
             body_handle,
-            collider_handle,
+            _collider_handle: collider_handle,
             owner: None,
             last_update: Instant::now(),
             created_at: Instant::now(),
@@ -149,7 +149,7 @@ impl DynamicObjectManager {
             velocity: Vector3::zeros(),
             scale,
             body_handle: Some(body_handle),
-            collider_handle: Some(collider_handle),
+            _collider_handle: Some(collider_handle),
             owner: None,
             last_update: Instant::now(),
             created_at: Instant::now(),
@@ -224,21 +224,21 @@ impl DynamicObjectManager {
         false
     }
     
-    pub fn revoke_ownership(&self, object_id: &str) {
+    pub fn _revoke_ownership(&self, object_id: &str) {
         if let Some(mut obj) = self.objects.get_mut(object_id) {
             obj.owner = None;
             obj.grabbed_by = None;
             obj.grab_offset = None;
         }
     }
-
+    
     pub fn grant_ownership(&mut self, object_id: &str, player_id: Uuid, duration: Duration) {
         if let Some(mut obj) = self.objects.get_mut(object_id) {
             obj.owner = Some((player_id, Instant::now() + duration));
         }
     }
     
-    pub fn update_ownership(&mut self) {
+    pub fn _update_ownership(&mut self) {
         let now = Instant::now();
         
         // Check for expired ownership
@@ -256,7 +256,7 @@ impl DynamicObjectManager {
         
         // Revoke expired ownership
         for object_id in expired_objects {
-            self.revoke_ownership(&object_id);
+            self._revoke_ownership(&object_id);
         }
     }
     

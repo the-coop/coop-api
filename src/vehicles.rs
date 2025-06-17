@@ -8,20 +8,22 @@ use uuid::Uuid;
 pub struct Vehicle {
     pub id: String,
     pub vehicle_type: String,
+    pub world_origin: Vector3<f64>,
     pub position: Vector3<f32>,
-    pub world_position: Vector3<f64>,
     pub rotation: UnitQuaternion<f32>,
     pub velocity: Vector3<f32>,
     pub angular_velocity: Vector3<f32>,
     pub health: f32,
     pub max_health: f32,
-    pub armor: f32,  // Keep for game logic
+    pub _armor: f32,  // Keep for game logic
     pub pilot_id: Option<Uuid>,
-    pub passengers: Vec<Uuid>,  // Keep for game logic
-    pub is_destroyed: bool,
-    pub respawn_time: Option<Instant>,
+    pub _passengers: Vec<Uuid>,  // Keep for game logic
     pub body_handle: Option<RigidBodyHandle>,
     pub collider_handle: Option<ColliderHandle>,
+    pub spawn_point_id: Option<String>,
+    pub destroyed_at: Option<std::time::Instant>,
+    pub is_destroyed: bool,
+    pub respawn_time: Option<std::time::Instant>,
     pub last_update: Instant,
 }
 
@@ -37,9 +39,9 @@ impl Vehicle {
     
     pub fn get_world_position(&self) -> Vector3<f64> {
         Vector3::new(
-            self.world_position.x + self.position.x as f64,
-            self.world_position.y + self.position.y as f64,
-            self.world_position.z + self.position.z as f64,
+            self.world_origin.x + self.position.x as f64,
+            self.world_origin.y + self.position.y as f64,
+            self.world_origin.z + self.position.z as f64,
         )
     }
 }
@@ -73,19 +75,21 @@ impl VehicleManager {
                 world_position.y as f32,
                 world_position.z as f32
             ),
-            world_position,
+            world_origin: world_position,
             rotation,
             velocity: Vector3::zeros(),
             angular_velocity: Vector3::zeros(),
             health: 100.0,
             max_health: 100.0,
-            armor: 0.0,
+            _armor: 0.0,
             pilot_id,
-            passengers: Vec::new(),
+            _passengers: Vec::new(),
             is_destroyed: false,
             respawn_time: None,
             body_handle: None,
             collider_handle: None,
+            spawn_point_id: None,
+            destroyed_at: None,
             last_update: Instant::now(),
         };
         
@@ -122,7 +126,7 @@ impl VehicleManager {
                         respawns.push((
                             vehicle.id.clone(),
                             vehicle.vehicle_type.clone(),
-                            vehicle.world_position,
+                            vehicle.world_origin,
                         ));
                     }
                 }

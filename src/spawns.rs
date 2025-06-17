@@ -7,18 +7,18 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct PlayerSpawnPoint {
     // Keep id for identification and rotation for serialization
-    pub id: String,
+    pub _id: String,
     pub position: Position,
-    pub rotation: Rotation,
+    pub _rotation: Rotation,
 }
 
 #[derive(Debug, Clone)]
 pub struct VehicleSpawnPoint {
     pub id: String,
-    pub vehicle_type: String,
     pub position: Position,
     pub rotation: Rotation,
-    pub respawn_time: f32,  // Keep for configuration
+    pub vehicle_type: String,
+    pub _respawn_time: f32,  // Keep for configuration
     pub occupied: bool,
 }
 
@@ -34,10 +34,9 @@ pub struct WeaponSpawnPoint {
 #[derive(Debug, Clone)]
 pub struct SpawnedItem {
     pub spawn_point_id: String,
-    pub item_id: String,  // Keep for identification
-    pub spawn_time: Instant,
+    pub _item_id: String,  // Keep for identification
     pub picked_up: bool,
-    pub pickup_time: Option<Instant>,
+    pub last_pickup_time: Option<std::time::Instant>,
 }
 
 pub struct SpawnManager {
@@ -71,9 +70,9 @@ impl SpawnManager {
                     if let Some(id) = &obj.id {
                         // Create player spawn point - only has id, position, and rotation
                         let spawn_point = PlayerSpawnPoint {
-                            id: id.clone(),
+                            _id: id.clone(),
                             position: obj.position.clone(),
-                            rotation: obj.rotation.clone().unwrap_or(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
+                            _rotation: obj.rotation.clone().unwrap_or(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
                         };
                         
                         self.spawn_points.push(spawn_point);
@@ -95,7 +94,7 @@ impl SpawnManager {
                                 vehicle_type: vehicle_type.to_string(),
                                 position: obj.position.clone(),
                                 rotation: obj.rotation.clone().unwrap_or(Rotation { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }),
-                                respawn_time,
+                                _respawn_time: respawn_time,
                                 occupied: false,
                             };
                             
@@ -105,10 +104,9 @@ impl SpawnManager {
                             let vehicle_id = format!("{}_{}", id, uuid::Uuid::new_v4());
                             self.spawned_vehicles.insert(vehicle_id.clone(), SpawnedItem {
                                 spawn_point_id: id.clone(),
-                                item_id: vehicle_id.clone(),
-                                spawn_time: Instant::now(),
+                                _item_id: vehicle_id.clone(),
                                 picked_up: false,
-                                pickup_time: None,
+                                last_pickup_time: None,
                             });
                             
                             // Create spawn message
@@ -147,10 +145,9 @@ impl SpawnManager {
                             let weapon_id = format!("{}_{}", id, uuid::Uuid::new_v4());
                             self.spawned_weapons.insert(weapon_id.clone(), SpawnedItem {
                                 spawn_point_id: id.clone(),
-                                item_id: weapon_id.clone(),
-                                spawn_time: Instant::now(),
+                                _item_id: weapon_id.clone(),
                                 picked_up: false,
-                                pickup_time: None,
+                                last_pickup_time: None,
                             });
                             
                             // Create spawn message
@@ -188,7 +185,7 @@ impl SpawnManager {
         if let Some(item) = self.spawned_weapons.get_mut(item_id) {
             if !item.picked_up {
                 item.picked_up = true;
-                item.pickup_time = Some(Instant::now());
+                item.last_pickup_time = Some(Instant::now());
                 
                 // Mark spawn point as occupied
                 if let Some(spawn) = self.weapon_spawns.iter_mut().find(|s| s.id == item.spawn_point_id) {
@@ -203,7 +200,7 @@ impl SpawnManager {
         if let Some(item) = self.spawned_vehicles.get_mut(item_id) {
             if !item.picked_up {
                 item.picked_up = true;
-                item.pickup_time = Some(Instant::now());
+                item.last_pickup_time = Some(Instant::now());
                 
                 // Mark spawn point as occupied
                 if let Some(spawn) = self.vehicle_spawns.iter_mut().find(|s| s.id == item.spawn_point_id) {
@@ -229,7 +226,7 @@ impl SpawnManager {
         let weapon_respawns: Vec<String> = self.spawned_weapons.iter()
             .filter_map(|(id, item)| {
                 if item.picked_up {
-                    if let Some(pickup_time) = item.pickup_time {
+                    if let Some(pickup_time) = item.last_pickup_time {
                         if let Some(spawn) = self.weapon_spawns.iter().find(|s| s.id == item.spawn_point_id) {
                             let respawn_duration = Duration::from_secs_f32(spawn.respawn_time);
                             if now.duration_since(pickup_time) >= respawn_duration {
@@ -246,8 +243,7 @@ impl SpawnManager {
         for weapon_id in weapon_respawns {
             if let Some(item) = self.spawned_weapons.get_mut(&weapon_id) {
                 item.picked_up = false;
-                item.pickup_time = None;
-                item.spawn_time = now;
+                item.last_pickup_time = None;
                 
                 // Get spawn info
                 if let Some(spawn) = self.weapon_spawns.iter_mut().find(|s| s.id == item.spawn_point_id) {

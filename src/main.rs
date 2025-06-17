@@ -176,7 +176,7 @@ async fn main() {
                         })
                         .collect();
                 
-                // Now process the spawns without borrowing issues
+                // Process vehicle spawns
                 for (vehicle_id, vehicle_type, position, rotation) in vehicle_spawns {
                     // Spawn vehicle in manager with correct position
                     state.vehicles.spawn_vehicle_with_id(
@@ -234,12 +234,12 @@ async fn main() {
                     
                     // Update vehicle with physics handle
                     if let Some(handle) = body_handle {
-                        // First update the vehicle with the body handle
+                        // Update vehicle with body handle
                         if let Some(mut vehicle) = state.vehicles.vehicles.get_mut(&vehicle_id) {
                             vehicle.body_handle = Some(handle);
                         }
                         
-                        // Then create and add the collider
+                        // Create and add the collider
                         let collider = match vehicle_type.as_str() {
                             "spaceship" => {
                                 ColliderBuilder::cuboid(2.5, 1.0, 4.0)
@@ -276,7 +276,6 @@ async fn main() {
                             }
                         };
                         
-                        // Get mutable reference to physics world components
                         let physics_world = &mut state.physics.world;
                         let collider_handle = physics_world.collider_set.insert_with_parent(
                             collider,
@@ -284,14 +283,44 @@ async fn main() {
                             &mut physics_world.rigid_body_set
                         );
                         
-                        // Finally update the vehicle with the collider handle
                         if let Some(mut vehicle) = state.vehicles.vehicles.get_mut(&vehicle_id) {
                             vehicle.collider_handle = Some(collider_handle);
                         }
                     }
+                    
+                    // Broadcast vehicle spawn to all connected players
+                    let spawn_msg = ServerMessage::VehicleSpawned {
+                        vehicle_id: vehicle_id.clone(),
+                        vehicle_type: vehicle_type.clone(),
+                        position: Position { x: position.x, y: position.y, z: position.z },
+                        rotation: Rotation { 
+                            x: rotation.i, 
+                            y: rotation.j, 
+                            z: rotation.k, 
+                            w: rotation.w 
+                        },
+                    };
+                    state.players.broadcast_to_all(&spawn_msg).await;
                 }
                 
-                info!("Initialized {} vehicles with physics bodies", state.spawn_manager.spawned_vehicles.len());
+                // Broadcast initial weapon spawns
+                for (weapon_id, spawned_item) in state.spawn_manager.spawned_weapons.iter() {
+                    if !spawned_item.picked_up {
+                        if let Some(spawn_point) = state.spawn_manager.weapon_spawns.iter()
+                            .find(|sp| sp.id == spawned_item.spawn_point_id) {
+                            let weapon_msg = ServerMessage::WeaponSpawn {
+                                weapon_id: weapon_id.clone(),
+                                weapon_type: spawn_point.weapon_type.clone(),
+                                position: spawn_point.position.clone(),
+                            };
+                            state.players.broadcast_to_all(&weapon_msg).await;
+                        }
+                    }
+                }
+                
+                info!("Initialized {} vehicles and {} weapons with physics bodies", 
+                    state.spawn_manager.spawned_vehicles.len(),
+                    state.spawn_manager.spawned_weapons.len());
             }
             
             // Update spawn manager
@@ -524,12 +553,12 @@ async fn main() {
                 
                 // Update vehicle with physics handle
                 if let Some(handle) = body_handle {
-                    // First update the vehicle with the body handle
+                    // Update vehicle with body handle
                     if let Some(mut vehicle) = state.vehicles.vehicles.get_mut(&vehicle_id) {
                         vehicle.body_handle = Some(handle);
                     }
                     
-                    // Then create and add the collider
+                    // Create and add the collider
                     let collider = match vehicle_type.as_str() {
                         "spaceship" => {
                             ColliderBuilder::cuboid(2.5, 1.0, 4.0)

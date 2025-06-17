@@ -23,19 +23,19 @@ pub struct Player {
     pub current_vehicle_id: Option<String>,
     pub relative_position: Option<Vector3<f32>>,
     pub relative_rotation: Option<UnitQuaternion<f32>>,
-    pub aim_rotation: Option<UnitQuaternion<f32>>,
+    pub _aim_rotation: Option<UnitQuaternion<f32>>,
     pub health: f32,
     pub armor: f32,
     pub max_health: f32,
-    pub max_armor: f32,
+    pub _max_armor: f32,
     pub is_dead: bool,
     pub last_damage_time: std::time::Instant,
     pub respawn_time: Option<std::time::Instant>,
-    pub current_weapon: Option<String>,
+    pub _current_weapon: Option<String>,
 }
 
 impl Player {
-    pub fn check_swimming(&mut self, physics: &PhysicsWorld) -> bool {
+    pub fn _check_swimming(&mut self, physics: &PhysicsWorld) -> bool {
         if let Some(body_handle) = self.body_handle {
             if let Some(body) = physics.rigid_body_set.get(body_handle) {
                 let pos = body.translation();
@@ -107,15 +107,15 @@ impl PlayerManager {
             current_vehicle_id: None,
             relative_position: None,
             relative_rotation: None,
-            aim_rotation: None,
+            _aim_rotation: None,
             health: 100.0,
             armor: 0.0,
             max_health: 100.0,
-            max_armor: 100.0,
+            _max_armor: 100.0,
             is_dead: false,
             last_damage_time: std::time::Instant::now(),
             respawn_time: None,
-            current_weapon: None,
+            _current_weapon: None,
         };
         self.players.insert(id, player);
     }
@@ -249,7 +249,7 @@ impl PlayerManager {
         }
     }
 
-    pub fn damage_player(&mut self, id: Uuid, damage: f32, damage_type: &str, attacker_id: Option<Uuid>) -> bool {
+    pub fn damage_player(&mut self, id: Uuid, damage: f32, _damage_type: &str, _attacker_id: Option<Uuid>) -> bool {
         if let Some(mut player) = self.players.get_mut(&id) {
             // Apply armor reduction
             let actual_damage = if player.armor > 0.0 {
