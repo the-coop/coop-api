@@ -1,0 +1,14 @@
+{
+  "name": "@game/server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.11.2",
+    "@game/shared": "file:../shared",
+    "ws": "^8.14.0"
+  }
+}
