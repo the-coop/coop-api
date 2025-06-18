@@ -99,9 +99,76 @@ class GameServer {
         id: vehicleId,
         type: VehicleTypes.CAR,
         position: pos,
-        rotation: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
         velocity: { x: 0, y: 0, z: 0 },
         driver: null
+      });
+    }
+    
+    // Create helicopters
+    const helicopterPositions = [
+      { x: -10, y: 1, z: -10 },
+      { x: 20, y: 1, z: 15 }
+    ];
+    
+    for (const pos of helicopterPositions) {
+      const vehicleId = `vehicle_${this.vehicleId++}`;
+      
+      const rigidBodyDesc = this.RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(pos.x, pos.y, pos.z)
+        .setLinearDamping(1.0) // Less damping for flight
+        .setAngularDamping(1.5);
+      const rigidBody = this.world.createRigidBody(rigidBodyDesc);
+      
+      const colliderDesc = this.RAPIER.ColliderDesc.cuboid(
+        VehicleConstants.HELICOPTER_SIZE.width / 2,
+        VehicleConstants.HELICOPTER_SIZE.height / 2,
+        VehicleConstants.HELICOPTER_SIZE.length / 2
+      );
+      this.world.createCollider(colliderDesc, rigidBody);
+      
+      this.vehicleRigidBodies.set(vehicleId, rigidBody);
+      this.vehicles.set(vehicleId, {
+        id: vehicleId,
+        type: VehicleTypes.HELICOPTER,
+        position: pos,
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        velocity: { x: 0, y: 0, z: 0 },
+        driver: null,
+        engineOn: false
+      });
+    }
+    
+    // Create planes
+    const planePositions = [
+      { x: 30, y: 1, z: -30 }
+    ];
+    
+    for (const pos of planePositions) {
+      const vehicleId = `vehicle_${this.vehicleId++}`;
+      
+      const rigidBodyDesc = this.RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(pos.x, pos.y, pos.z)
+        .setLinearDamping(0.5) // Low damping for gliding
+        .setAngularDamping(1.0);
+      const rigidBody = this.world.createRigidBody(rigidBodyDesc);
+      
+      const colliderDesc = this.RAPIER.ColliderDesc.cuboid(
+        VehicleConstants.PLANE_SIZE.width / 2,
+        VehicleConstants.PLANE_SIZE.height / 2,
+        VehicleConstants.PLANE_SIZE.length / 2
+      );
+      this.world.createCollider(colliderDesc, rigidBody);
+      
+      this.vehicleRigidBodies.set(vehicleId, rigidBody);
+      this.vehicles.set(vehicleId, {
+        id: vehicleId,
+        type: VehicleTypes.PLANE,
+        position: pos,
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        velocity: { x: 0, y: 0, z: 0 },
+        driver: null,
+        throttle: 0
       });
     }
   }
@@ -293,59 +360,175 @@ class GameServer {
     
     // If player is in a vehicle, handle vehicle controls
     if (player.vehicle) {
+      const vehicle = this.vehicles.get(player.vehicle);
       const vehicleBody = this.vehicleRigidBodies.get(player.vehicle);
-      if (!vehicleBody) return;
+      if (!vehicleBody || !vehicle) return;
       
-      // Get current vehicle velocity for better control
       const currentVel = vehicleBody.linvel();
       const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.z * currentVel.z);
       
-      // Get vehicle rotation as euler angles
-      const rotation = vehicleBody.rotation();
-      
-      // Calculate forward vector from rotation
-      // For a quaternion, we can extract the forward direction
-      const forward = {
-        x: 2 * (rotation.x * rotation.z + rotation.w * rotation.y),
-        y: 2 * (rotation.y * rotation.z - rotation.w * rotation.x),
-        z: 1 - 2 * (rotation.x * rotation.x + rotation.y * rotation.y)
-      };
-      
-      // Normalize forward vector
-      const forwardLength = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
-      if (forwardLength > 0) {
-        forward.x /= forwardLength;
-        forward.z /= forwardLength;
-      }
-      
-      // Vehicle movement forces
-      const force = new this.RAPIER.Vector3(0, 0, 0);
-      const torque = new this.RAPIER.Vector3(0, 0, 0);
-      
-      if (input.moveForward) {
-        force.x = forward.x * VehicleConstants.CAR_SPEED * 2;
-        force.z = forward.z * VehicleConstants.CAR_SPEED * 2;
-      }
-      if (input.moveBackward) {
-        force.x = -forward.x * VehicleConstants.CAR_SPEED;
-        force.z = -forward.z * VehicleConstants.CAR_SPEED;
-      }
-      
-      // Only allow turning when moving
-      if (currentSpeed > 0.5 || input.moveForward || input.moveBackward) {
+      if (vehicle.type === VehicleTypes.HELICOPTER) {
+        // Helicopter controls
+        const force = new this.RAPIER.Vector3(0, 0, 0);
+        const torque = new this.RAPIER.Vector3(0, 0, 0);
+        
+        // Get current rotation for forward direction
+        const rotation = vehicleBody.rotation();
+        const forward = {
+          x: 2 * (rotation.x * rotation.z + rotation.w * rotation.y),
+          y: 0,
+          z: 1 - 2 * (rotation.x * rotation.x + rotation.y * rotation.y)
+        };
+        
+        // Normalize
+        const forwardLength = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
+        if (forwardLength > 0) {
+          forward.x /= forwardLength;
+          forward.z /= forwardLength;
+        }
+        
+        // Vertical movement (Space for up, Shift/Z for down)
+        if (input.jump) { // Space key - up
+          force.y = VehicleConstants.HELICOPTER_LIFT_FORCE;
+          vehicle.engineOn = true;
+        } else if (input.shift || input.descend) { // Shift or Z - down
+          force.y = -VehicleConstants.HELICOPTER_LIFT_FORCE * 0.5;
+        } else {
+          // Hover with slight downward drift
+          force.y = 2.0; // Counter gravity
+        }
+        
+        // Forward/backward with tilt
+        if (input.moveForward) {
+          force.x = forward.x * VehicleConstants.HELICOPTER_FORWARD_SPEED;
+          force.z = forward.z * VehicleConstants.HELICOPTER_FORWARD_SPEED;
+          // Tilt forward
+          torque.x = -VehicleConstants.HELICOPTER_TILT_ANGLE;
+        }
+        if (input.moveBackward) {
+          force.x = -forward.x * VehicleConstants.HELICOPTER_FORWARD_SPEED * 0.5;
+          force.z = -forward.z * VehicleConstants.HELICOPTER_FORWARD_SPEED * 0.5;
+          // Tilt backward
+          torque.x = VehicleConstants.HELICOPTER_TILT_ANGLE;
+        }
+        
+        // Rotation
         if (input.moveLeft) {
-          torque.y = VehicleConstants.CAR_TURN_SPEED;
+          torque.y = VehicleConstants.HELICOPTER_TURN_SPEED;
         }
         if (input.moveRight) {
-          torque.y = -VehicleConstants.CAR_TURN_SPEED;
+          torque.y = -VehicleConstants.HELICOPTER_TURN_SPEED;
         }
+        
+        // Altitude limit
+        const currentY = vehicleBody.translation().y;
+        if (currentY > VehicleConstants.HELICOPTER_MAX_ALTITUDE && force.y > 0) {
+          force.y = 0;
+        }
+        
+        vehicleBody.applyImpulse(force, true);
+        vehicleBody.applyTorqueImpulse(torque, true);
+        
+      } else if (vehicle.type === VehicleTypes.PLANE) {
+        // Plane controls - needs forward speed to fly
+        const force = new this.RAPIER.Vector3(0, 0, 0);
+        const torque = new this.RAPIER.Vector3(0, 0, 0);
+        
+        // Get forward direction
+        const rotation = vehicleBody.rotation();
+        const forward = {
+          x: 2 * (rotation.x * rotation.z + rotation.w * rotation.y),
+          y: 2 * (rotation.y * rotation.z - rotation.w * rotation.x),
+          z: 1 - 2 * (rotation.x * rotation.x + rotation.y * rotation.y)
+        };
+        
+        // Throttle control
+        if (input.moveForward) {
+          vehicle.throttle = Math.min(1, vehicle.throttle + 0.02);
+        } else if (input.moveBackward) {
+          vehicle.throttle = Math.max(0, vehicle.throttle - 0.02);
+        }
+        
+        // Apply thrust
+        const thrust = vehicle.throttle * VehicleConstants.PLANE_ACCELERATION;
+        force.x = forward.x * thrust;
+        force.y = forward.y * thrust;
+        force.z = forward.z * thrust;
+        
+        // Calculate lift based on speed
+        const speed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y + currentVel.z * currentVel.z);
+        if (speed > VehicleConstants.PLANE_MIN_SPEED) {
+          const liftMagnitude = Math.min(speed * VehicleConstants.PLANE_LIFT_COEFFICIENT, 15);
+          force.y += liftMagnitude;
+        }
+        
+        // Pitch control (up/down)
+        if (input.jump) { // Pull up
+          torque.x = -VehicleConstants.PLANE_PITCH_SPEED;
+        } else if (input.shift || input.descend) { // Push down - now both Shift and Z work
+          torque.x = VehicleConstants.PLANE_PITCH_SPEED;
+        }
+        
+        // Roll and yaw
+        if (input.moveLeft) {
+          torque.z = VehicleConstants.PLANE_TURN_SPEED;
+          torque.y = VehicleConstants.PLANE_TURN_SPEED * 0.5; // Some yaw with roll
+        }
+        if (input.moveRight) {
+          torque.z = -VehicleConstants.PLANE_TURN_SPEED;
+          torque.y = -VehicleConstants.PLANE_TURN_SPEED * 0.5;
+        }
+        
+        vehicleBody.applyImpulse(force, true);
+        vehicleBody.applyTorqueImpulse(torque, true);
+        
+      } else {
+        // Existing car controls
+        const rotation = vehicleBody.rotation();
+        
+        // Calculate forward vector from rotation
+        const forward = {
+          x: 2 * (rotation.x * rotation.z + rotation.w * rotation.y),
+          y: 2 * (rotation.y * rotation.z - rotation.w * rotation.x),
+          z: 1 - 2 * (rotation.x * rotation.x + rotation.y * rotation.y)
+        };
+        
+        // Normalize forward vector
+        const forwardLength = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
+        if (forwardLength > 0) {
+          forward.x /= forwardLength;
+          forward.z /= forwardLength;
+        }
+        
+        // Vehicle movement forces
+        const force = new this.RAPIER.Vector3(0, 0, 0);
+        const torque = new this.RAPIER.Vector3(0, 0, 0);
+        
+        if (input.moveForward) {
+          force.x = forward.x * VehicleConstants.CAR_SPEED * 2;
+          force.z = forward.z * VehicleConstants.CAR_SPEED * 2;
+        }
+        if (input.moveBackward) {
+          force.x = -forward.x * VehicleConstants.CAR_SPEED;
+          force.z = -forward.z * VehicleConstants.CAR_SPEED;
+        }
+        
+        // Only allow turning when moving
+        if (currentSpeed > 0.5 || input.moveForward || input.moveBackward) {
+          if (input.moveLeft) {
+            torque.y = VehicleConstants.CAR_TURN_SPEED;
+          }
+          if (input.moveRight) {
+            torque.y = -VehicleConstants.CAR_TURN_SPEED;
+          }
+        }
+        
+        vehicleBody.applyImpulse(force, true);
+        vehicleBody.applyTorqueImpulse(torque, true);
+        
+        // Add downward force to keep vehicle grounded
+        vehicleBody.applyImpulse(new this.RAPIER.Vector3(0, -1.0, 0), true);
       }
-      
-      vehicleBody.applyImpulse(force, true);
-      vehicleBody.applyTorqueImpulse(torque, true);
-      
-      // Add downward force to keep vehicle grounded
-      vehicleBody.applyImpulse(new this.RAPIER.Vector3(0, -1.0, 0), true);
       
       return;
     }
