@@ -153,11 +153,15 @@ class GameServer {
     // Use RAPIER directly for rigid body creation
     const rigidBodyDesc = this.RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(0, 5, 0)
-      .setLinearDamping(0.5);
+      .setLinearDamping(0.5)
+      .lockRotations(); // Lock all rotations to prevent tipping
     const rigidBody = this.world.createRigidBody(rigidBodyDesc);
     
-    // Use RAPIER directly for collider
-    const colliderDesc = this.RAPIER.ColliderDesc.capsule(PlayerConstants.HEIGHT / 2, PlayerConstants.RADIUS);
+    // Use RAPIER directly for collider - fix capsule parameters
+    const colliderDesc = this.RAPIER.ColliderDesc.capsule(
+      PlayerConstants.HEIGHT / 2 - PlayerConstants.RADIUS, // halfHeight
+      PlayerConstants.RADIUS // radius
+    );
     this.world.createCollider(colliderDesc, rigidBody);
     
     this.clients.set(playerId, ws);
@@ -169,7 +173,8 @@ class GameServer {
       velocity: { x: 0, y: 0, z: 0 },
       health: PlayerConstants.MAX_HEALTH,
       lastFireTime: 0,
-      lookDirection: { x: 0, y: 0, z: -1 }
+      lookDirection: { x: 0, y: 0, z: -1 },
+      vehicle: null // Add vehicle field
     });
 
     this.broadcast({
@@ -179,6 +184,19 @@ class GameServer {
   }
 
   static removePlayer(playerId) {
+    // If player was in a vehicle, remove them from it
+    const player = this.players.get(playerId);
+    if (player && player.vehicle) {
+      const vehicle = this.vehicles.get(player.vehicle);
+      if (vehicle) {
+        vehicle.driver = null;
+        this.broadcast({
+          type: MessageTypes.VEHICLE_UPDATE,
+          vehicle: vehicle
+        });
+      }
+    }
+    
     const rigidBody = this.rigidBodies.get(playerId);
     if (rigidBody) {
       this.world.removeRigidBody(rigidBody);
@@ -215,8 +233,9 @@ class GameServer {
       vehicle.driver = playerId;
       player.vehicle = vehicleId;
       
-      // Hide player mesh by moving it far away
-      playerBody.setTranslation(new this.RAPIER.Vector3(0, -100, 0), true);
+      // Disable player collision by making it kinematic and moving far away
+      playerBody.setBodyType(this.RAPIER.RigidBodyType.KinematicPositionBased, true);
+      playerBody.setTranslation(new this.RAPIER.Vector3(0, -1000, 0), true);
       
       this.broadcast({
         type: MessageTypes.VEHICLE_UPDATE,
@@ -235,13 +254,21 @@ class GameServer {
     
     if (!vehicle || !playerBody || !vehicleBody) return;
     
+    // Re-enable player physics
+    playerBody.setBodyType(this.RAPIER.RigidBodyType.Dynamic, true);
+    
     // Place player next to vehicle
     const vehiclePos = vehicleBody.translation();
+    
+    // Simple offset - just place player to the left of vehicle
     playerBody.setTranslation(new this.RAPIER.Vector3(
       vehiclePos.x + 3,
       vehiclePos.y + 1,
       vehiclePos.z
     ), true);
+    
+    // Reset player velocity
+    playerBody.setLinvel(new this.RAPIER.Vector3(0, 0, 0), true);
     
     vehicle.driver = null;
     player.vehicle = null;
@@ -261,31 +288,56 @@ class GameServer {
       const vehicleBody = this.vehicleRigidBodies.get(player.vehicle);
       if (!vehicleBody) return;
       
-      const rotation = vehicleBody.rotation();
-      let forward = new this.RAPIER.Vector3(0, 0, -1);
-      forward = rotation.vmul(forward);
+      // Get current vehicle velocity for better control
+      const currentVel = vehicleBody.linvel();
+      const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.z * currentVel.z);
       
-      // Vehicle movement
-      const force = { x: 0, y: 0, z: 0 };
-      const torque = { x: 0, y: 0, z: 0 };
+      // Get vehicle rotation as euler angles
+      const rotation = vehicleBody.rotation();
+      
+      // Calculate forward vector from rotation
+      // For a quaternion, we can extract the forward direction
+      const forward = {
+        x: 2 * (rotation.x * rotation.z + rotation.w * rotation.y),
+        y: 2 * (rotation.y * rotation.z - rotation.w * rotation.x),
+        z: 1 - 2 * (rotation.x * rotation.x + rotation.y * rotation.y)
+      };
+      
+      // Normalize forward vector
+      const forwardLength = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
+      if (forwardLength > 0) {
+        forward.x /= forwardLength;
+        forward.z /= forwardLength;
+      }
+      
+      // Vehicle movement forces
+      const force = new this.RAPIER.Vector3(0, 0, 0);
+      const torque = new this.RAPIER.Vector3(0, 0, 0);
       
       if (input.moveForward) {
-        force.x = forward.x * VehicleConstants.CAR_SPEED;
-        force.z = forward.z * VehicleConstants.CAR_SPEED;
+        force.x = forward.x * VehicleConstants.CAR_SPEED * 2;
+        force.z = forward.z * VehicleConstants.CAR_SPEED * 2;
       }
       if (input.moveBackward) {
-        force.x = -forward.x * VehicleConstants.CAR_SPEED * 0.5;
-        force.z = -forward.z * VehicleConstants.CAR_SPEED * 0.5;
-      }
-      if (input.moveLeft) {
-        torque.y = VehicleConstants.CAR_TURN_SPEED;
-      }
-      if (input.moveRight) {
-        torque.y = -VehicleConstants.CAR_TURN_SPEED;
+        force.x = -forward.x * VehicleConstants.CAR_SPEED;
+        force.z = -forward.z * VehicleConstants.CAR_SPEED;
       }
       
-      vehicleBody.applyImpulse(new this.RAPIER.Vector3(force.x, force.y, force.z), true);
-      vehicleBody.applyTorqueImpulse(new this.RAPIER.Vector3(torque.x, torque.y, torque.z), true);
+      // Only allow turning when moving
+      if (currentSpeed > 0.5 || input.moveForward || input.moveBackward) {
+        if (input.moveLeft) {
+          torque.y = VehicleConstants.CAR_TURN_SPEED;
+        }
+        if (input.moveRight) {
+          torque.y = -VehicleConstants.CAR_TURN_SPEED;
+        }
+      }
+      
+      vehicleBody.applyImpulse(force, true);
+      vehicleBody.applyTorqueImpulse(torque, true);
+      
+      // Add downward force to keep vehicle grounded
+      vehicleBody.applyImpulse(new this.RAPIER.Vector3(0, -1.0, 0), true);
       
       return;
     }
@@ -328,7 +380,11 @@ class GameServer {
       impulse.x += right.x * speed;
       impulse.z += right.z * speed;
     }
-    if (input.jump && Math.abs(rigidBody.translation().y - 1) < 0.1) {
+    
+    // Check if player is grounded (adjust for capsule center)
+    const playerY = rigidBody.translation().y;
+    const groundLevel = PlayerConstants.HEIGHT / 2; // Capsule center when standing on ground
+    if (input.jump && Math.abs(playerY - groundLevel) < 0.1) {
       impulse.y = PlayerConstants.JUMP_FORCE;
     }
 
@@ -392,16 +448,19 @@ class GameServer {
     
     // Update players
     for (const [playerId, rigidBody] of this.rigidBodies) {
+      const player = this.players.get(playerId);
+      if (!player) continue;
+      
+      // Skip updating position if player is in vehicle
+      if (player.vehicle) continue;
+      
       const translation = rigidBody.translation();
       const rotation = rigidBody.rotation();
       const linvel = rigidBody.linvel();
       
-      const player = this.players.get(playerId);
-      if (player) {
-        player.position = { x: translation.x, y: translation.y, z: translation.z };
-        player.rotation = { x: rotation.x, y: rotation.y, z: rotation.z };
-        player.velocity = { x: linvel.x, y: linvel.y, z: linvel.z };
-      }
+      player.position = { x: translation.x, y: translation.y, z: translation.z };
+      player.rotation = { x: rotation.x, y: rotation.y, z: rotation.z };
+      player.velocity = { x: linvel.x, y: linvel.y, z: linvel.z };
     }
 
     // Update vehicles
