@@ -407,73 +407,58 @@ class GameServer {
     const impulse = new this.RAPIER.Vector3(0, 0, 0);
     
     if (isGrounded) {
-      // Project movement onto ground plane
+      // Ground movement with consistent forces
       if (moveDirLength > 0) {
-        // Project movement direction onto the plane perpendicular to ground normal
-        const dot = moveDir.x * groundNormal.x + moveDir.y * groundNormal.y + moveDir.z * groundNormal.z;
-        const projectedMove = {
-          x: moveDir.x - groundNormal.x * dot,
-          y: moveDir.y - groundNormal.y * dot,
-          z: moveDir.z - groundNormal.z * dot
-        };
+        // Simple movement without complex ground projection
+        const targetSpeed = PlayerConstants.SPEED;
+        const acceleration = 0.15; // Consistent acceleration
         
-        // Normalize projected movement
-        const projLength = Math.sqrt(projectedMove.x * projectedMove.x + projectedMove.y * projectedMove.y + projectedMove.z * projectedMove.z);
-        if (projLength > 0.001) {
-          projectedMove.x /= projLength;
-          projectedMove.y /= projLength;
-          projectedMove.z /= projLength;
-          
-          // Apply movement force
-          const targetSpeed = PlayerConstants.SPEED;
-          const desiredVel = {
-            x: projectedMove.x * targetSpeed,
-            y: projectedMove.y * targetSpeed,
-            z: projectedMove.z * targetSpeed
-          };
-          
-          // Stronger impulse for better responsiveness
-          impulse.x = (desiredVel.x - currentVel.x) * 0.25;
-          impulse.y = (desiredVel.y - currentVel.y) * 0.25;
-          impulse.z = (desiredVel.z - currentVel.z) * 0.25;
-        }
+        impulse.x = moveDir.x * targetSpeed * acceleration;
+        impulse.z = moveDir.z * targetSpeed * acceleration;
+        
+        // Apply velocity damping directly
+        const dampingFactor = 0.9;
+        const newVelX = currentVel.x * dampingFactor + impulse.x;
+        const newVelZ = currentVel.z * dampingFactor + impulse.z;
+        
+        // Set velocity directly for more consistent movement
+        rigidBody.setLinvel(new this.RAPIER.Vector3(
+          newVelX,
+          currentVel.y,
+          newVelZ
+        ), true);
+        
+        // Don't apply impulse since we're setting velocity directly
+        impulse.x = 0;
+        impulse.z = 0;
       } else {
-        // Apply friction when not moving
-        const frictionForce = 0.3;
-        impulse.x = -currentVel.x * frictionForce;
-        impulse.y = -currentVel.y * frictionForce;
-        impulse.z = -currentVel.z * frictionForce;
+        // Friction when not moving
+        rigidBody.setLinvel(new this.RAPIER.Vector3(
+          currentVel.x * 0.8,
+          currentVel.y,
+          currentVel.z * 0.8
+        ), true);
       }
       
-      // Add a small downward force to keep grounded on slopes
-      impulse.y -= 0.5;
+      // Small downward force to stay grounded
+      impulse.y = -0.2;
     } else {
-      // Air control
+      // Air control (minimal)
       if (moveDirLength > 0) {
-        const airControl = 0.05;
+        const airControl = 0.02;
         impulse.x = moveDir.x * airControl;
         impulse.z = moveDir.z * airControl;
       }
     }
     
     // Handle jumping - only when grounded
-    if (input.jump && isGrounded && currentVel.y < 0.5) { // Prevent double jumps
+    if (input.jump && isGrounded && currentVel.y < 0.5) {
       impulse.y = PlayerConstants.JUMP_FORCE;
     }
 
-    // Apply the impulse
-    rigidBody.applyImpulse(impulse, true);
-    
-    // Limit max velocity to prevent sliding
-    const maxHorizontalSpeed = PlayerConstants.SPEED * 1.5;
-    const horizontalSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.z * currentVel.z);
-    if (horizontalSpeed > maxHorizontalSpeed) {
-      const scale = maxHorizontalSpeed / horizontalSpeed;
-      rigidBody.setLinvel(new this.RAPIER.Vector3(
-        currentVel.x * scale,
-        currentVel.y,
-        currentVel.z * scale
-      ), true);
+    // Apply the impulse only if there's something to apply
+    if (impulse.x !== 0 || impulse.y !== 0 || impulse.z !== 0) {
+      rigidBody.applyImpulse(impulse, true);
     }
   }
 
