@@ -11,9 +11,9 @@ class GameServer {
   static projectiles = new Map();
   static projectileId = 0;
 
-  static async init(RAPIER) {
-    this.RAPIER = RAPIER;
-    this.world = new RAPIER.World(new RAPIER.Vector3(
+  static async init(RapierModule) {
+    this.RAPIER = RapierModule;
+    this.world = new RapierModule.World(new RapierModule.Vector3(
       PhysicsConstants.GRAVITY.x, 
       PhysicsConstants.GRAVITY.y, 
       PhysicsConstants.GRAVITY.z
@@ -26,7 +26,8 @@ class GameServer {
       .setTranslation(0, -0.5, 0);
     const ground = this.world.createRigidBody(groundDesc);
     
-    const groundCollider = Physics.createGroundColliderDesc();
+    // Use RAPIER directly instead of the Physics helper
+    const groundCollider = this.RAPIER.ColliderDesc.cuboid(50, 0.5, 50);
     this.world.createCollider(groundCollider, ground);
   }
 
@@ -67,9 +68,14 @@ class GameServer {
   }
 
   static addPlayer(playerId, ws) {
-    const rigidBody = Physics.createPlayerRigidBody(this.world, this.RAPIER);
+    // Use RAPIER directly for rigid body creation
+    const rigidBodyDesc = this.RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(0, 5, 0)
+      .setLinearDamping(0.5);
+    const rigidBody = this.world.createRigidBody(rigidBodyDesc);
     
-    const colliderDesc = Physics.createPlayerColliderDesc();
+    // Use RAPIER directly for collider
+    const colliderDesc = this.RAPIER.ColliderDesc.capsule(PlayerConstants.HEIGHT / 2, PlayerConstants.RADIUS);
     this.world.createCollider(colliderDesc, rigidBody);
     
     this.clients.set(playerId, ws);
@@ -145,7 +151,7 @@ class GameServer {
       impulse.x += right.x * speed;
       impulse.z += right.z * speed;
     }
-    if (input.jump && Physics.isGrounded(rigidBody)) {
+    if (input.jump && Math.abs(rigidBody.translation().y - 1) < 0.1) {
       impulse.y = PlayerConstants.JUMP_FORCE;
     }
 
@@ -313,13 +319,17 @@ class GameServer {
 }
 
 // Initialize server
-await RAPIER.init();
-await GameServer.init(RAPIER);
+async function startServer() {
+  await RAPIER.init();
+  await GameServer.init(RAPIER);
 
-// Start WebSocket server
-const wss = new WebSocketServer({ port: 8080 });
-wss.on('connection', (ws) => GameServer.handleConnection(ws));
+  // Start WebSocket server
+  const wss = new WebSocketServer({ port: 8080 });
+  wss.on('connection', (ws) => GameServer.handleConnection(ws));
 
-// Start game loop
-GameServer.start();
-console.log('Game server running on ws://localhost:8080');
+  // Start game loop
+  GameServer.start();
+  console.log('Game server running on ws://localhost:8080');
+}
+
+startServer().catch(console.error);
