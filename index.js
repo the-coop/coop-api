@@ -10,6 +10,7 @@ class GameServer {
   static rigidBodies = new Map();
   static projectiles = new Map();
   static projectileId = 0;
+  static levelObjects = []; // Add level objects array
 
   static async init(RapierModule) {
     this.RAPIER = RapierModule;
@@ -19,6 +20,7 @@ class GameServer {
       PhysicsConstants.GRAVITY.z
     ));
     this.createGround();
+    this.createLevel(); // Create level objects
   }
 
   static createGround() {
@@ -29,6 +31,37 @@ class GameServer {
     // Use RAPIER directly instead of the Physics helper
     const groundCollider = this.RAPIER.ColliderDesc.cuboid(50, 0.5, 50);
     this.world.createCollider(groundCollider, ground);
+  }
+
+  static createLevel() {
+    // Generate decorative cubes on server
+    for (let i = 0; i < 10; i++) {
+      const cube = {
+        id: `cube_${i}`,
+        type: 'cube',
+        position: {
+          x: (Math.random() - 0.5) * 80,
+          y: 1,
+          z: (Math.random() - 0.5) * 80
+        },
+        size: { x: 2, y: 2, z: 2 },
+        color: Math.floor(Math.random() * 0xffffff)
+      };
+      
+      // Create physics body for cube
+      const cubeDesc = this.RAPIER.RigidBodyDesc.fixed()
+        .setTranslation(cube.position.x, cube.position.y, cube.position.z);
+      const cubeBody = this.world.createRigidBody(cubeDesc);
+      
+      const colliderDesc = this.RAPIER.ColliderDesc.cuboid(
+        cube.size.x / 2, 
+        cube.size.y / 2, 
+        cube.size.z / 2
+      );
+      this.world.createCollider(colliderDesc, cubeBody);
+      
+      this.levelObjects.push(cube);
+    }
   }
 
   static handleConnection(ws) {
@@ -49,7 +82,8 @@ class GameServer {
 
     ws.send(JSON.stringify({
       type: MessageTypes.INIT,
-      playerId
+      playerId,
+      level: this.levelObjects // Send level data on init
     }));
   }
 
