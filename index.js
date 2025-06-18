@@ -1,7 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { WebSocketServer } from 'ws';
-import { MessageTypes, PhysicsConstants, PlayerConstants, GameConstants, Physics, WeaponConstants, VehicleConstants, VehicleTypes, GhostConstants, GhostTypes } from '@game/shared';
-import { ServerModelLoader } from './utils/modelLoader.js';
+import { MessageTypes, PhysicsConstants, PlayerConstants, GameConstants, Physics, WeaponConstants, VehicleConstants, VehicleTypes, GhostConstants, GhostTypes, ModelLoader } from '@game/shared';
 
 class GameServer {
   static world = null;
@@ -1105,15 +1104,15 @@ async function startServer() {
   const wss = new WebSocketServer({ port: 8080 });
   wss.on('connection', (ws) => GameServer.handleConnection(ws));
 
-  // Preload models
-  console.log('Preloading models...');
-  const modelLoader = new ServerModelLoader();
-  const modelsLoaded = await modelLoader.preloadModels();
-  
-  if (!modelsLoaded) {
-    console.warn('Some models failed to load, continuing with fallbacks');
-  }
-  
+  // Load models on startup
+  ModelLoader.loadModels(process.env.NODE_ENV === 'production', false).then((success) => {
+    if (success) {
+      console.log('All server models loaded successfully')
+    } else {
+      console.warn('Some models failed to load')
+    }
+  })
+
   // Start game loop
   GameServer.start();
   console.log('Game server running on ws://localhost:8080');
