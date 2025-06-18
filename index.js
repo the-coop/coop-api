@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { WebSocketServer } from 'ws';
-import { MessageTypes, PhysicsConstants, PlayerConstants, GameConstants, Physics, WeaponConstants, VehicleConstants, VehicleTypes } from '@game/shared';
+import { MessageTypes, PhysicsConstants, PlayerConstants, GameConstants, Physics, WeaponConstants, VehicleConstants, VehicleTypes, GhostConstants, GhostTypes } from '@game/shared';
 
 class GameServer {
   static world = null;
@@ -14,6 +14,9 @@ class GameServer {
   static vehicles = new Map();
   static vehicleRigidBodies = new Map();
   static vehicleId = 0;
+  static ghosts = new Map();
+  static ghostRigidBodies = new Map();
+  static ghostId = 0;
 
   static async init(RapierModule) {
     this.RAPIER = RapierModule;
@@ -25,6 +28,7 @@ class GameServer {
     this.createGround();
     this.createLevel();
     this.createVehicles(); // Create some vehicles
+    this.createGhostEntities(); // Create some ghost entities
   }
 
   static createGround() {
@@ -173,6 +177,68 @@ class GameServer {
     }
   }
 
+  static createGhostEntities() {
+    // Create various ghost objects around the map
+    const ghostConfigs = [
+      { type: GhostTypes.BOX, position: { x: 5, y: 2, z: 5 }, size: { width: 1, height: 1, depth: 1 }, mass: 10 },
+      { type: GhostTypes.BOX, position: { x: -5, y: 2, z: 5 }, size: { width: 0.5, height: 2, depth: 0.5 }, mass: 15 },
+      { type: GhostTypes.SPHERE, position: { x: 0, y: 2, z: -5 }, size: { radius: 0.6 }, mass: 8 },
+      { type: GhostTypes.CYLINDER, position: { x: 10, y: 2, z: -10 }, size: { radius: 0.4, height: 1.5 }, mass: 12 },
+      { type: GhostTypes.BOX, position: { x: -10, y: 2, z: 0 }, size: { width: 1.5, height: 0.5, depth: 1.5 }, mass: 20 }
+    ];
+
+    for (const config of ghostConfigs) {
+      const ghostId = `ghost_${this.ghostId++}`;
+      
+      // Create ghost rigid body
+      const rigidBodyDesc = this.RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(config.position.x, config.position.y, config.position.z)
+        .setLinearDamping(0.5)
+        .setAngularDamping(0.5);
+      const rigidBody = this.world.createRigidBody(rigidBodyDesc);
+      
+      // Create appropriate collider based on type
+      let colliderDesc;
+      switch (config.type) {
+        case GhostTypes.BOX:
+          colliderDesc = this.RAPIER.ColliderDesc.cuboid(
+            config.size.width / 2,
+            config.size.height / 2,
+            config.size.depth / 2
+          );
+          break;
+        case GhostTypes.SPHERE:
+          colliderDesc = this.RAPIER.ColliderDesc.ball(config.size.radius);
+          break;
+        case GhostTypes.CYLINDER:
+          colliderDesc = this.RAPIER.ColliderDesc.cylinder(
+            config.size.height / 2,
+            config.size.radius
+          );
+          break;
+      }
+      
+      colliderDesc.setDensity(config.mass / (config.size.width * config.size.height * config.size.depth || 1));
+      colliderDesc.setFriction(GhostConstants.DEFAULT_FRICTION);
+      colliderDesc.setRestitution(GhostConstants.DEFAULT_RESTITUTION);
+      
+      this.world.createCollider(colliderDesc, rigidBody);
+      
+      this.ghostRigidBodies.set(ghostId, rigidBody);
+      this.ghosts.set(ghostId, {
+        id: ghostId,
+        type: config.type,
+        size: config.size,
+        position: config.position,
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        velocity: { x: 0, y: 0, z: 0 },
+        mass: config.mass,
+        carrier: null,
+        color: Math.floor(Math.random() * 0xffffff)
+      });
+    }
+  }
+
   static handleConnection(ws) {
     const playerId = this.generateId();
     
@@ -213,6 +279,15 @@ class GameServer {
       case MessageTypes.EXIT_VEHICLE:
         this.handleExitVehicle(playerId);
         break;
+      case MessageTypes.GRAB_GHOST:
+        this.handleGrabGhost(playerId, message.ghostId);
+        break;
+      case MessageTypes.DROP_GHOST:
+        this.handleDropGhost(playerId);
+        break;
+      case MessageTypes.THROW_GHOST:
+        this.handleThrowGhost(playerId, message.direction);
+        break;
     }
   }
 
@@ -249,7 +324,8 @@ class GameServer {
       vehicle: null,
       isGrounded: false,
       groundNormal: { x: 0, y: 1, z: 0 },
-      groundDistance: null
+      groundDistance: null,
+      carryingGhost: null
     });
 
     this.broadcast({
@@ -259,8 +335,20 @@ class GameServer {
   }
 
   static removePlayer(playerId) {
-    // If player was in a vehicle, remove them from it
     const player = this.players.get(playerId);
+    if (player && player.carryingGhost) {
+      // Drop any carried ghost
+      const ghost = this.ghosts.get(player.carryingGhost);
+      if (ghost) {
+        ghost.carrier = null;
+        const ghostBody = this.ghostRigidBodies.get(player.carryingGhost);
+        if (ghostBody) {
+          ghostBody.setBodyType(this.RAPIER.RigidBodyType.Dynamic, true);
+        }
+      }
+    }
+    
+    // If player was in a vehicle, remove them from it
     if (player && player.vehicle) {
       const vehicle = this.vehicles.get(player.vehicle);
       if (vehicle) {
@@ -351,6 +439,90 @@ class GameServer {
     this.broadcast({
       type: MessageTypes.VEHICLE_UPDATE,
       vehicle: vehicle
+    });
+  }
+
+  static handleGrabGhost(playerId, ghostId) {
+    const player = this.players.get(playerId);
+    const ghost = this.ghosts.get(ghostId);
+    const playerBody = this.rigidBodies.get(playerId);
+    const ghostBody = this.ghostRigidBodies.get(ghostId);
+    
+    if (!player || !ghost || !playerBody || !ghostBody || ghost.carrier || player.carryingGhost) return;
+    
+    // Check distance
+    const playerPos = playerBody.translation();
+    const ghostPos = ghostBody.translation();
+    const distance = Math.sqrt(
+      (playerPos.x - ghostPos.x) ** 2 +
+      (playerPos.y - ghostPos.y) ** 2 +
+      (playerPos.z - ghostPos.z) ** 2
+    );
+    
+    if (distance <= GhostConstants.INTERACTION_RANGE && ghost.mass <= GhostConstants.MAX_CARRY_MASS) {
+      ghost.carrier = playerId;
+      player.carryingGhost = ghostId;
+      
+      // Make ghost kinematic
+      ghostBody.setBodyType(this.RAPIER.RigidBodyType.KinematicPositionBased, true);
+      
+      this.broadcast({
+        type: MessageTypes.GHOST_UPDATE,
+        ghost: ghost
+      });
+    }
+  }
+
+  static handleDropGhost(playerId) {
+    const player = this.players.get(playerId);
+    if (!player || !player.carryingGhost) return;
+    
+    const ghost = this.ghosts.get(player.carryingGhost);
+    const ghostBody = this.ghostRigidBodies.get(player.carryingGhost);
+    
+    if (!ghost || !ghostBody) return;
+    
+    // Make ghost dynamic again
+    ghostBody.setBodyType(this.RAPIER.RigidBodyType.Dynamic, true);
+    
+    // Apply small downward velocity
+    ghostBody.setLinvel(new this.RAPIER.Vector3(0, -1, 0), true);
+    
+    ghost.carrier = null;
+    player.carryingGhost = null;
+    
+    this.broadcast({
+      type: MessageTypes.GHOST_UPDATE,
+      ghost: ghost
+    });
+  }
+
+  static handleThrowGhost(playerId, direction) {
+    const player = this.players.get(playerId);
+    if (!player || !player.carryingGhost) return;
+    
+    const ghost = this.ghosts.get(player.carryingGhost);
+    const ghostBody = this.ghostRigidBodies.get(player.carryingGhost);
+    
+    if (!ghost || !ghostBody) return;
+    
+    // Make ghost dynamic
+    ghostBody.setBodyType(this.RAPIER.RigidBodyType.Dynamic, true);
+    
+    // Apply throw force
+    const throwVelocity = {
+      x: direction.x * GhostConstants.THROW_FORCE,
+      y: direction.y * GhostConstants.THROW_FORCE,
+      z: direction.z * GhostConstants.THROW_FORCE
+    };
+    ghostBody.setLinvel(new this.RAPIER.Vector3(throwVelocity.x, throwVelocity.y, throwVelocity.z), true);
+    
+    ghost.carrier = null;
+    player.carryingGhost = null;
+    
+    this.broadcast({
+      type: MessageTypes.GHOST_UPDATE,
+      ghost: ghost
     });
   }
 
@@ -791,6 +963,45 @@ class GameServer {
       }
     }
 
+    // Update carried ghosts
+    for (const [playerId, player] of this.players) {
+      if (player.carryingGhost && !player.vehicle) {
+        const ghost = this.ghosts.get(player.carryingGhost);
+        const ghostBody = this.ghostRigidBodies.get(player.carryingGhost);
+        const playerBody = this.rigidBodies.get(playerId);
+        
+        if (ghost && ghostBody && playerBody) {
+          // Position ghost in front of player
+          const playerPos = playerBody.translation();
+          const carryPosition = {
+            x: playerPos.x + player.lookDirection.x * GhostConstants.CARRY_DISTANCE,
+            y: playerPos.y + 0.5 + player.lookDirection.y * GhostConstants.CARRY_DISTANCE,
+            z: playerPos.z + player.lookDirection.z * GhostConstants.CARRY_DISTANCE
+          };
+          
+          ghostBody.setTranslation(new this.RAPIER.Vector3(
+            carryPosition.x,
+            carryPosition.y,
+            carryPosition.z
+          ), true);
+        }
+      }
+    }
+
+    // Update ghosts
+    for (const [ghostId, rigidBody] of this.ghostRigidBodies) {
+      const translation = rigidBody.translation();
+      const rotation = rigidBody.rotation();
+      const linvel = rigidBody.linvel();
+      
+      const ghost = this.ghosts.get(ghostId);
+      if (ghost) {
+        ghost.position = { x: translation.x, y: translation.y, z: translation.z };
+        ghost.rotation = { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w };
+        ghost.velocity = { x: linvel.x, y: linvel.y, z: linvel.z };
+      }
+    }
+
     // Update and check projectiles
     const now = Date.now() / 1000;
     const projectilesToRemove = [];
@@ -860,7 +1071,8 @@ class GameServer {
         position: Physics.rapierToVector3(proj.body.translation()),
         velocity: Physics.rapierToVector3(proj.body.linvel())
       })),
-      vehicles: Array.from(this.vehicles.values())
+      vehicles: Array.from(this.vehicles.values()),
+      ghosts: Array.from(this.ghosts.values())
     };
     
     this.broadcast({
