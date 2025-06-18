@@ -153,15 +153,20 @@ class GameServer {
     // Use RAPIER directly for rigid body creation
     const rigidBodyDesc = this.RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(0, 5, 0)
-      .setLinearDamping(0.5)
+      .setLinearDamping(10.0) // Higher damping for better control
+      .setAngularDamping(10.0) // Prevent any rotation
       .lockRotations(); // Lock all rotations to prevent tipping
     const rigidBody = this.world.createRigidBody(rigidBodyDesc);
     
     // Use RAPIER directly for collider - fix capsule parameters
+    // Capsule in Rapier is defined by half-height (distance between centers of hemispheres) and radius
+    const halfHeight = (PlayerConstants.HEIGHT - PlayerConstants.RADIUS * 2) / 2;
     const colliderDesc = this.RAPIER.ColliderDesc.capsule(
-      PlayerConstants.HEIGHT / 2 - PlayerConstants.RADIUS, // halfHeight
+      halfHeight, // halfHeight between sphere centers
       PlayerConstants.RADIUS // radius
-    );
+    )
+      .setFriction(0.5) // Add friction for better ground control
+      .setRestitution(0.0); // No bouncing
     this.world.createCollider(colliderDesc, rigidBody);
     
     this.clients.set(playerId, ws);
@@ -174,7 +179,10 @@ class GameServer {
       health: PlayerConstants.MAX_HEALTH,
       lastFireTime: 0,
       lookDirection: { x: 0, y: 0, z: -1 },
-      vehicle: null // Add vehicle field
+      vehicle: null,
+      isGrounded: false,
+      groundNormal: { x: 0, y: 1, z: 0 },
+      groundDistance: null
     });
 
     this.broadcast({
@@ -351,6 +359,10 @@ class GameServer {
       player.lookDirection = input.lookDirection;
     }
 
+    // Use the ground detection info from the update loop
+    const isGrounded = player.isGrounded || false;
+    const groundNormal = player.groundNormal || { x: 0, y: 1, z: 0 };
+
     // Calculate movement based on look direction
     const forward = { x: player.lookDirection.x, y: 0, z: player.lookDirection.z };
     const length = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
@@ -361,34 +373,108 @@ class GameServer {
     
     const right = { x: -forward.z, y: 0, z: forward.x };
     
-    const impulse = { x: 0, y: 0, z: 0 };
-    const speed = 0.5;
+    // Calculate desired movement direction
+    let moveDir = { x: 0, y: 0, z: 0 };
     
     if (input.moveForward) {
-      impulse.x += forward.x * speed;
-      impulse.z += forward.z * speed;
+      moveDir.x += forward.x;
+      moveDir.z += forward.z;
     }
     if (input.moveBackward) {
-      impulse.x -= forward.x * speed;
-      impulse.z -= forward.z * speed;
+      moveDir.x -= forward.x;
+      moveDir.z -= forward.z;
     }
     if (input.moveLeft) {
-      impulse.x -= right.x * speed;
-      impulse.z -= right.z * speed;
+      moveDir.x -= right.x;
+      moveDir.z -= right.z;
     }
     if (input.moveRight) {
-      impulse.x += right.x * speed;
-      impulse.z += right.z * speed;
+      moveDir.x += right.x;
+      moveDir.z += right.z;
     }
     
-    // Check if player is grounded (adjust for capsule center)
-    const playerY = rigidBody.translation().y;
-    const groundLevel = PlayerConstants.HEIGHT / 2; // Capsule center when standing on ground
-    if (input.jump && Math.abs(playerY - groundLevel) < 0.1) {
+    // Normalize movement direction
+    const moveDirLength = Math.sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z);
+    if (moveDirLength > 0) {
+      moveDir.x /= moveDirLength;
+      moveDir.z /= moveDirLength;
+    }
+    
+    // Get current velocity
+    const currentVel = rigidBody.linvel();
+    
+    // Calculate impulse
+    const impulse = new this.RAPIER.Vector3(0, 0, 0);
+    
+    if (isGrounded) {
+      // Project movement onto ground plane
+      if (moveDirLength > 0) {
+        // Project movement direction onto the plane perpendicular to ground normal
+        const dot = moveDir.x * groundNormal.x + moveDir.y * groundNormal.y + moveDir.z * groundNormal.z;
+        const projectedMove = {
+          x: moveDir.x - groundNormal.x * dot,
+          y: moveDir.y - groundNormal.y * dot,
+          z: moveDir.z - groundNormal.z * dot
+        };
+        
+        // Normalize projected movement
+        const projLength = Math.sqrt(projectedMove.x * projectedMove.x + projectedMove.y * projectedMove.y + projectedMove.z * projectedMove.z);
+        if (projLength > 0.001) {
+          projectedMove.x /= projLength;
+          projectedMove.y /= projLength;
+          projectedMove.z /= projLength;
+          
+          // Apply movement force
+          const targetSpeed = PlayerConstants.SPEED;
+          const desiredVel = {
+            x: projectedMove.x * targetSpeed,
+            y: projectedMove.y * targetSpeed,
+            z: projectedMove.z * targetSpeed
+          };
+          
+          // Stronger impulse for better responsiveness
+          impulse.x = (desiredVel.x - currentVel.x) * 0.25;
+          impulse.y = (desiredVel.y - currentVel.y) * 0.25;
+          impulse.z = (desiredVel.z - currentVel.z) * 0.25;
+        }
+      } else {
+        // Apply friction when not moving
+        const frictionForce = 0.3;
+        impulse.x = -currentVel.x * frictionForce;
+        impulse.y = -currentVel.y * frictionForce;
+        impulse.z = -currentVel.z * frictionForce;
+      }
+      
+      // Add a small downward force to keep grounded on slopes
+      impulse.y -= 0.5;
+    } else {
+      // Air control
+      if (moveDirLength > 0) {
+        const airControl = 0.05;
+        impulse.x = moveDir.x * airControl;
+        impulse.z = moveDir.z * airControl;
+      }
+    }
+    
+    // Handle jumping - only when grounded
+    if (input.jump && isGrounded && currentVel.y < 0.5) { // Prevent double jumps
       impulse.y = PlayerConstants.JUMP_FORCE;
     }
 
-    rigidBody.applyImpulse(new this.RAPIER.Vector3(impulse.x, impulse.y, impulse.z), true);
+    // Apply the impulse
+    rigidBody.applyImpulse(impulse, true);
+    
+    // Limit max velocity to prevent sliding
+    const maxHorizontalSpeed = PlayerConstants.SPEED * 1.5;
+    const horizontalSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.z * currentVel.z);
+    if (horizontalSpeed > maxHorizontalSpeed) {
+      const scale = maxHorizontalSpeed / horizontalSpeed;
+      rigidBody.setLinvel(new this.RAPIER.Vector3(
+        currentVel.x * scale,
+        currentVel.y,
+        currentVel.z * scale
+      ), true);
+    }
   }
 
   static handleFire(playerId, direction, origin) {
@@ -461,6 +547,66 @@ class GameServer {
       player.position = { x: translation.x, y: translation.y, z: translation.z };
       player.rotation = { x: rotation.x, y: rotation.y, z: rotation.z };
       player.velocity = { x: linvel.x, y: linvel.y, z: linvel.z };
+      
+      // Perform ground detection for all players
+      const playerPos = translation;
+      const rayDir = new this.RAPIER.Vector3(0, -1, 0);
+      // Start ray from center of capsule
+      const maxToi = PlayerConstants.HEIGHT / 2 + 0.5; // From center to ground + margin
+      
+      // Create an array of ray origins around the capsule bottom
+      const rayOffsets = [
+        { x: 0, z: 0 }, // Center
+        { x: PlayerConstants.RADIUS * 0.7, z: 0 }, // Right
+        { x: -PlayerConstants.RADIUS * 0.7, z: 0 }, // Left
+        { x: 0, z: PlayerConstants.RADIUS * 0.7 }, // Front
+        { x: 0, z: -PlayerConstants.RADIUS * 0.7 }, // Back
+      ];
+      
+      let isGrounded = false;
+      let closestHit = null;
+      let minDistance = Infinity;
+      
+      // Cast rays from multiple points
+      for (const offset of rayOffsets) {
+        const rayOrigin = new this.RAPIER.Vector3(
+          playerPos.x + offset.x,
+          playerPos.y, // Start from capsule center
+          playerPos.z + offset.z
+        );
+        
+        const ray = new this.RAPIER.Ray(rayOrigin, rayDir);
+        
+        const hit = this.world.castRay(
+          ray,
+          maxToi,
+          true,
+          this.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+          undefined,
+          undefined,
+          rigidBody
+        );
+        
+        if (hit) {
+          const distance = hit.toi;
+          // Check if within ground threshold (accounting for capsule bottom)
+          const groundThreshold = PlayerConstants.HEIGHT / 2 + 0.1; // Small tolerance
+          if (distance <= groundThreshold) {
+            isGrounded = true;
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestHit = hit;
+            }
+          }
+        }
+      }
+      
+      // Update ground info
+      player.isGrounded = isGrounded;
+      player.groundNormal = closestHit && closestHit.normal ? 
+        { x: closestHit.normal.x, y: closestHit.normal.y, z: closestHit.normal.z } : 
+        { x: 0, y: 1, z: 0 };
+      player.groundDistance = closestHit ? closestHit.toi : null;
     }
 
     // Update vehicles
