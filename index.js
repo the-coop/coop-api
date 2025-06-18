@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { WebSocketServer } from 'ws';
-import { MessageTypes, PhysicsConstants, PlayerConstants, GameConstants, Physics, WeaponConstants } from '@game/shared';
+import { MessageTypes, PhysicsConstants, PlayerConstants, GameConstants, Physics, WeaponConstants, VehicleConstants, VehicleTypes } from '@game/shared';
 
 class GameServer {
   static world = null;
@@ -10,7 +10,10 @@ class GameServer {
   static rigidBodies = new Map();
   static projectiles = new Map();
   static projectileId = 0;
-  static levelObjects = []; // Add level objects array
+  static levelObjects = [];
+  static vehicles = new Map();
+  static vehicleRigidBodies = new Map();
+  static vehicleId = 0;
 
   static async init(RapierModule) {
     this.RAPIER = RapierModule;
@@ -20,7 +23,8 @@ class GameServer {
       PhysicsConstants.GRAVITY.z
     ));
     this.createGround();
-    this.createLevel(); // Create level objects
+    this.createLevel();
+    this.createVehicles(); // Create some vehicles
   }
 
   static createGround() {
@@ -64,6 +68,44 @@ class GameServer {
     }
   }
 
+  static createVehicles() {
+    // Create a few cars around the map
+    const carPositions = [
+      { x: 10, y: 1, z: 10 },
+      { x: -15, y: 1, z: 5 },
+      { x: 5, y: 1, z: -20 }
+    ];
+
+    for (const pos of carPositions) {
+      const vehicleId = `vehicle_${this.vehicleId++}`;
+      
+      // Create vehicle rigid body
+      const rigidBodyDesc = this.RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(pos.x, pos.y, pos.z)
+        .setLinearDamping(2.0)
+        .setAngularDamping(2.0);
+      const rigidBody = this.world.createRigidBody(rigidBodyDesc);
+      
+      // Create vehicle collider (box shape)
+      const colliderDesc = this.RAPIER.ColliderDesc.cuboid(
+        VehicleConstants.CAR_SIZE.width / 2,
+        VehicleConstants.CAR_SIZE.height / 2,
+        VehicleConstants.CAR_SIZE.length / 2
+      );
+      this.world.createCollider(colliderDesc, rigidBody);
+      
+      this.vehicleRigidBodies.set(vehicleId, rigidBody);
+      this.vehicles.set(vehicleId, {
+        id: vehicleId,
+        type: VehicleTypes.CAR,
+        position: pos,
+        rotation: { x: 0, y: 0, z: 0 },
+        velocity: { x: 0, y: 0, z: 0 },
+        driver: null
+      });
+    }
+  }
+
   static handleConnection(ws) {
     const playerId = this.generateId();
     
@@ -97,6 +139,12 @@ class GameServer {
         break;
       case MessageTypes.FIRE:
         this.handleFire(playerId, message.direction, message.origin);
+        break;
+      case MessageTypes.ENTER_VEHICLE:
+        this.handleEnterVehicle(playerId, message.vehicleId);
+        break;
+      case MessageTypes.EXIT_VEHICLE:
+        this.handleExitVehicle(playerId);
         break;
     }
   }
@@ -146,10 +194,105 @@ class GameServer {
     });
   }
 
-  static handleInput(playerId, input) {
-    const rigidBody = this.rigidBodies.get(playerId);
+  static handleEnterVehicle(playerId, vehicleId) {
     const player = this.players.get(playerId);
-    if (!rigidBody || !player) return;
+    const vehicle = this.vehicles.get(vehicleId);
+    const playerBody = this.rigidBodies.get(playerId);
+    const vehicleBody = this.vehicleRigidBodies.get(vehicleId);
+    
+    if (!player || !vehicle || !playerBody || !vehicleBody || vehicle.driver) return;
+    
+    // Check distance
+    const playerPos = playerBody.translation();
+    const vehiclePos = vehicleBody.translation();
+    const distance = Math.sqrt(
+      (playerPos.x - vehiclePos.x) ** 2 +
+      (playerPos.y - vehiclePos.y) ** 2 +
+      (playerPos.z - vehiclePos.z) ** 2
+    );
+    
+    if (distance <= VehicleConstants.INTERACTION_RANGE) {
+      vehicle.driver = playerId;
+      player.vehicle = vehicleId;
+      
+      // Hide player mesh by moving it far away
+      playerBody.setTranslation(new this.RAPIER.Vector3(0, -100, 0), true);
+      
+      this.broadcast({
+        type: MessageTypes.VEHICLE_UPDATE,
+        vehicle: vehicle
+      });
+    }
+  }
+
+  static handleExitVehicle(playerId) {
+    const player = this.players.get(playerId);
+    if (!player || !player.vehicle) return;
+    
+    const vehicle = this.vehicles.get(player.vehicle);
+    const playerBody = this.rigidBodies.get(playerId);
+    const vehicleBody = this.vehicleRigidBodies.get(player.vehicle);
+    
+    if (!vehicle || !playerBody || !vehicleBody) return;
+    
+    // Place player next to vehicle
+    const vehiclePos = vehicleBody.translation();
+    playerBody.setTranslation(new this.RAPIER.Vector3(
+      vehiclePos.x + 3,
+      vehiclePos.y + 1,
+      vehiclePos.z
+    ), true);
+    
+    vehicle.driver = null;
+    player.vehicle = null;
+    
+    this.broadcast({
+      type: MessageTypes.VEHICLE_UPDATE,
+      vehicle: vehicle
+    });
+  }
+
+  static handleInput(playerId, input) {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    
+    // If player is in a vehicle, handle vehicle controls
+    if (player.vehicle) {
+      const vehicleBody = this.vehicleRigidBodies.get(player.vehicle);
+      if (!vehicleBody) return;
+      
+      const rotation = vehicleBody.rotation();
+      let forward = new this.RAPIER.Vector3(0, 0, -1);
+      forward = rotation.vmul(forward);
+      
+      // Vehicle movement
+      const force = { x: 0, y: 0, z: 0 };
+      const torque = { x: 0, y: 0, z: 0 };
+      
+      if (input.moveForward) {
+        force.x = forward.x * VehicleConstants.CAR_SPEED;
+        force.z = forward.z * VehicleConstants.CAR_SPEED;
+      }
+      if (input.moveBackward) {
+        force.x = -forward.x * VehicleConstants.CAR_SPEED * 0.5;
+        force.z = -forward.z * VehicleConstants.CAR_SPEED * 0.5;
+      }
+      if (input.moveLeft) {
+        torque.y = VehicleConstants.CAR_TURN_SPEED;
+      }
+      if (input.moveRight) {
+        torque.y = -VehicleConstants.CAR_TURN_SPEED;
+      }
+      
+      vehicleBody.applyImpulse(new this.RAPIER.Vector3(force.x, force.y, force.z), true);
+      vehicleBody.applyTorqueImpulse(new this.RAPIER.Vector3(torque.x, torque.y, torque.z), true);
+      
+      return;
+    }
+    
+    // Regular player movement
+    const rigidBody = this.rigidBodies.get(playerId);
+    if (!rigidBody) return;
 
     // Update look direction
     if (input.lookDirection) {
@@ -261,6 +404,20 @@ class GameServer {
       }
     }
 
+    // Update vehicles
+    for (const [vehicleId, rigidBody] of this.vehicleRigidBodies) {
+      const translation = rigidBody.translation();
+      const rotation = rigidBody.rotation();
+      const linvel = rigidBody.linvel();
+      
+      const vehicle = this.vehicles.get(vehicleId);
+      if (vehicle) {
+        vehicle.position = { x: translation.x, y: translation.y, z: translation.z };
+        vehicle.rotation = { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w };
+        vehicle.velocity = { x: linvel.x, y: linvel.y, z: linvel.z };
+      }
+    }
+
     // Update and check projectiles
     const now = Date.now() / 1000;
     const projectilesToRemove = [];
@@ -329,7 +486,8 @@ class GameServer {
         id,
         position: Physics.rapierToVector3(proj.body.translation()),
         velocity: Physics.rapierToVector3(proj.body.linvel())
-      }))
+      })),
+      vehicles: Array.from(this.vehicles.values())
     };
     
     this.broadcast({
