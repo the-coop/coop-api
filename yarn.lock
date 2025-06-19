@@ -7,9 +7,9 @@
   resolved "https://registry.yarnpkg.com/@dimforge/rapier3d-compat/-/rapier3d-compat-0.11.2.tgz#ae2b335f545decf1e82ff45bb10368e143de0fcb"
   integrity sha512-vdWmlkpS3G8nGAzLuK7GYTpNdrkn/0NKCe0l1Jqxc7ZZOB3N0q9uG/Ap9l9bothWuAvxscIt0U97GVLr0lXWLg==
 
-"@game/shared@github:the-coop/coop-shared#main":
+"@game/shared@https://github.com/the-coop/coop-shared#main":
   version "1.0.0"
-  resolved "https://codeload.github.com/the-coop/coop-shared/tar.gz/f091a80e53576ed646e33629e8353eb5f361f854"
+  resolved "https://github.com/the-coop/coop-shared#f091a80e53576ed646e33629e8353eb5f361f854"
   dependencies:
     "@dimforge/rapier3d-compat" "^0.11.2"
 
