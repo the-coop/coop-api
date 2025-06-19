@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.11.2",
-    "@game/shared": "github:the-coop/coop-shared#f091a80e53576ed646e33629e8353eb5f361f854",
+    "@game/shared": "github:the-coop/coop-shared#main",
     "@gltf-transform/core": "^3.0.0",
     "@gltf-transform/extensions": "^3.0.0",
     "ws": "^8.16.0"
