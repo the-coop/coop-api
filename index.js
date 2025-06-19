@@ -1103,8 +1103,11 @@ async function startServer() {
   await RAPIER.init();
   await GameServer.init(RAPIER);
 
+  // Use Heroku's PORT or default to 8080
+  const port = process.env.PORT || 8080;
+
   // Start WebSocket server
-  const wss = new WebSocketServer({ port: 8080 });
+  const wss = new WebSocketServer({ port });
   wss.on('connection', (ws) => GameServer.handleConnection(ws));
 
   // Load models on startup
