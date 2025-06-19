@@ -1,5 +1,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { WebSocketServer } from 'ws';
+
+import * as TEST from '@game/shared';
+console.log('TEST:', TEST);
 import { MessageTypes, PhysicsConstants, PlayerConstants, GameConstants, Physics, WeaponConstants, VehicleConstants, VehicleTypes, GhostConstants, GhostTypes, ModelLoader } from '@game/shared';
 
 class GameServer {
